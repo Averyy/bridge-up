@@ -1,0 +1,10 @@
+#requirements.txt
+firebase-admin
+requests
+beautifulsoup4
+pytz
+flask
+apscheduler
+waitress
+lxml
+cachetools

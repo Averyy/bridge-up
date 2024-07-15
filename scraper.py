@@ -143,7 +143,6 @@ def interpret_bridge_status(bridge_data, db, region_short):
     available = "available" in raw_status and "unavailable" not in raw_status
     display_status = "UNKNOWN"
     display_info = raw_status
-    display_predicted_change = None
 
     if available:
         display_status = "OPEN"
@@ -151,12 +150,11 @@ def interpret_bridge_status(bridge_data, db, region_short):
             next_closure = upcoming_closures[0]
             closure_time = next_closure['time']
             if closure_time <= current_time + timedelta(minutes=15):
-                display_info = f"Closing soon at {closure_time.strftime('%-I:%M%p').lower()} for {next_closure['type']}"
+                display_info = f"Closing soon around {closure_time.strftime('%-I:%M%p').lower()} for {next_closure['type'].lower()}"
             else:
-                display_info = f"Next closure at {closure_time.strftime('%-I:%M%p').lower()} for {next_closure['type']}"
+                display_info = f"Next closure around {closure_time.strftime('%-I:%M%p').lower()} for {next_closure['type'].lower()}"
             if next_closure.get('longer', False):
                 display_info += " (may take longer)"
-            display_predicted_change = closure_time
         elif "raising soon" in raw_status:
             display_info = "Closing soon"
         else:
@@ -192,8 +190,7 @@ def interpret_bridge_status(bridge_data, db, region_short):
         "name": name,
         "available": available,
         "display_status": display_status,
-        "display_info": display_info,
-        "display_predicted_change": display_predicted_change
+        "display_info": display_info
     }
 
 def interpret_tracked_status(raw_status):
@@ -308,7 +305,6 @@ def update_firestore(bridges, region, shortform):
                 'raw_status': bridge['raw_status'],
                 'display_status': interpreted_status['display_status'],
                 'display_info': interpreted_status['display_info'],
-                'display_predicted_change': interpreted_status['display_predicted_change'],
                 'upcoming_closures': [
                     {
                         'type': closure['type'],
@@ -321,28 +317,31 @@ def update_firestore(bridges, region, shortform):
         }
 
         if doc_id not in last_known_state:
+            existing_doc = doc_ref.get()
+            if existing_doc.exists:
+                existing_data = existing_doc.to_dict()
+                if 'statistics' in existing_data:
+                    new_data['statistics'] = existing_data['statistics']
             update_needed = True
             new_data['live']['last_updated'] = current_time
             batch.set(doc_ref, new_data)
             last_known_state[doc_id] = copy.deepcopy(new_data)
         else:
-            # Compare everything except 'live.last_updated'
             old_data = copy.deepcopy(last_known_state[doc_id])
-            old_data['live'].pop('last_updated', None)
-            new_data_compare = copy.deepcopy(new_data)
-            new_data_compare['live'].pop('last_updated', None)
+            old_live = {k: v for k, v in old_data['live'].items() if k != 'last_updated'}
+            new_live = {k: v for k, v in new_data['live'].items() if k != 'last_updated'}
 
-            if new_data_compare != old_data:
+            if new_live != old_live:
                 update_needed = True
                 new_data['live']['last_updated'] = current_time
-                batch.set(doc_ref, new_data, merge=True)
+                batch.set(doc_ref, {'live': new_data['live']}, merge=True)
                 
-                if new_data['live']['raw_status'] != last_known_state[doc_id]['live']['raw_status']:
+                if new_data['live']['raw_status'] != old_data['live']['raw_status']:
                     update_bridge_history(doc_ref, interpret_tracked_status(new_data['live']['raw_status']), current_time, batch)
                     if new_data['live']['available']:
                         last_known_open_times[doc_id] = current_time
                 
-                last_known_state[doc_id] = copy.deepcopy(new_data)
+                last_known_state[doc_id]['live'] = copy.deepcopy(new_data['live'])
 
     if update_needed:
         batch.commit()

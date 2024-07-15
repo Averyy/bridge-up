@@ -13,6 +13,7 @@ import random
 import string
 from config import BRIDGE_URLS, BRIDGE_COORDINATES
 from cachetools import TTLCache
+from stats_calculator import calculate_bridge_statistics
 
 # Initialize Firebase
 cred = credentials.Certificate('bridge-up-firebase-auth.json')
@@ -26,7 +27,7 @@ TIMEZONE = pytz.timezone('America/Toronto')
 last_known_state = {}
 
 # Caching TTL
-last_known_open_times = TTLCache(maxsize=1000, ttl=3600)  # 1 hour TTL
+last_known_open_times = TTLCache(maxsize=1000, ttl=10800)  # 3 hours TTL for bridges
 
 def parse_date(date_str):
     if isinstance(date_str, datetime):
@@ -255,6 +256,32 @@ def update_bridge_history(doc_ref, new_status, current_time, batch):
                 'duration': None
             }
             batch.set(doc_ref.collection('history').document(doc_id), new_history)
+
+def daily_statistics_update():
+    bridges = db.collection('bridges').get()
+    batch = db.batch()
+    
+    for bridge in bridges:
+        doc_ref = bridge.reference
+        
+        # Delete old history entries
+        thirty_one_days_ago = datetime.now(TIMEZONE) - timedelta(days=31)
+        old_history = doc_ref.collection('history').where('start_time', '<=', thirty_one_days_ago).get() # Using positional arguments as the 'filter' keyword argument caused issues
+        for old_entry in old_history:
+            batch.delete(old_entry.reference)
+        
+        # Get recent history for statistics calculation
+        recent_history = doc_ref.collection('history').where('start_time', '>', thirty_one_days_ago).get() # Using positional arguments as the 'filter' keyword argument caused issues
+        history_data = [entry.to_dict() for entry in recent_history]
+        
+        # Calculate statistics
+        stats = calculate_bridge_statistics(history_data)
+        
+        # Update statistics in the main bridge document
+        batch.update(doc_ref, {'statistics': stats})
+    
+    # Commit all changes
+    batch.commit()
 
 def update_firestore(bridges, region, shortform):
     global last_known_state

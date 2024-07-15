@@ -322,8 +322,13 @@ def update_firestore(bridges, region, shortform):
                 existing_data = existing_doc.to_dict()
                 if 'statistics' in existing_data:
                     new_data['statistics'] = existing_data['statistics']
+                if 'live' in existing_data and 'last_updated' in existing_data['live']:
+                    new_data['live']['last_updated'] = existing_data['live']['last_updated']
+                else:
+                    new_data['live']['last_updated'] = current_time
+            else:
+                new_data['live']['last_updated'] = current_time
             update_needed = True
-            new_data['live']['last_updated'] = current_time
             batch.set(doc_ref, new_data)
             last_known_state[doc_id] = copy.deepcopy(new_data)
         else:
@@ -342,6 +347,9 @@ def update_firestore(bridges, region, shortform):
                         last_known_open_times[doc_id] = current_time
                 
                 last_known_state[doc_id]['live'] = copy.deepcopy(new_data['live'])
+            else:
+                # If no changes, preserve the existing last_updated time
+                new_data['live']['last_updated'] = old_data['live']['last_updated']
 
     if update_needed:
         batch.commit()

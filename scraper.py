@@ -3,11 +3,10 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 import unicodedata
 import re
-import math
 import copy
 import random
 import string
@@ -234,24 +233,27 @@ def daily_statistics_update():
     for bridge in bridges:
         doc_ref = bridge.reference
         
-        # Delete old history entries
-        thirty_one_days_ago = datetime.now(TIMEZONE) - timedelta(days=31)
-        old_history = doc_ref.collection('history').where('start_time', '<=', thirty_one_days_ago).get() # Using positional arguments as the 'filter' keyword argument caused issues
-        for old_entry in old_history:
-            batch.delete(old_entry.reference)
+        # Get all history entries
+        history = doc_ref.collection('history').order_by('start_time', direction=firestore.Query.DESCENDING).get()
         
-        # Get recent history for statistics calculation
-        recent_history = doc_ref.collection('history').where('start_time', '>', thirty_one_days_ago).get() # Using positional arguments as the 'filter' keyword argument caused issues
-        history_data = [entry.to_dict() for entry in recent_history]
+        # print(f"\nProcessing bridge: {doc_ref.id}")
+        # print(f"Total history entries: {len(history)}")
         
-        # Calculate statistics
-        stats = calculate_bridge_statistics(history_data)
+        # Calculate statistics and optimize history in one pass
+        history_data = [{'id': entry.id, **entry.to_dict()} for entry in history]
+        stats, operation_count, updated_batch = calculate_bridge_statistics(history_data, doc_ref, batch)
         
         # Update statistics in the main bridge document
-        batch.update(doc_ref, {'statistics': stats})
+        updated_batch.update(doc_ref, {'statistics': stats})
+        
+        # Commit the batch for this bridge
+        if operation_count > 0:
+            # print(f"Committing batch with {operation_count} delete operations and 1 update operation")
+            updated_batch.commit()
+        # else:
+            # print("No changes to commit for this bridge")
     
-    # Commit all changes
-    batch.commit()
+    # print("Daily statistics update completed")
 
 def update_firestore(bridges, region, shortform):
     global last_known_state

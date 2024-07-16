@@ -22,8 +22,8 @@ def start_scheduler():
         scheduler.add_job(scrape_and_update_task, 'cron',
                           hour='22-23,0-5', minute='*', second='0',
                           misfire_grace_time=120)
-        # Daily statistics update at 3 AM
-        scheduler.add_job(daily_statistics_update, 'cron', hour=3, minute=0)
+        # Daily statistics update at 4 AM
+        scheduler.add_job(daily_statistics_update, 'cron', hour=4, minute=0)
         
         scheduler.start()
         print(f'Scheduler started at {datetime.now(TIMEZONE).strftime("%I:%M:%S%p").lower()}')

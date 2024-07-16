@@ -141,56 +141,29 @@ def interpret_bridge_status(bridge_data, db, region_short):
     current_time = datetime.now(TIMEZONE)
 
     available = "available" in raw_status and "unavailable" not in raw_status
-    display_status = "UNKNOWN"
-    display_info = raw_status
+    status = "Unknown"
 
     if available:
-        display_status = "OPEN"
-        if upcoming_closures:
-            next_closure = upcoming_closures[0]
-            closure_time = next_closure['time']
-            if closure_time <= current_time + timedelta(minutes=15):
-                display_info = f"Closing soon around {closure_time.strftime('%-I:%M%p').lower()} for {next_closure['type'].lower()}"
-            else:
-                display_info = f"Next closure around {closure_time.strftime('%-I:%M%p').lower()} for {next_closure['type'].lower()}"
-            if next_closure.get('longer', False):
-                display_info += " (may take longer)"
-        elif "raising soon" in raw_status:
-            display_info = "Closing soon"
+        if "raising soon" in raw_status:
+            status = "Closing soon"
         else:
-            doc_id = sanitize_document_id(region_short, bridge_data['name'])
-            if doc_id in last_known_open_times:
-                open_since = last_known_open_times[doc_id]
-                display_info = f"Open since {open_since.strftime('%-I:%M%p').lower()}"
-            else:
-                history_query = db.collection('bridges').document(doc_id).collection('history').order_by('start_time', direction=firestore.Query.DESCENDING).limit(1)
-                history_docs = history_query.get()
-                if history_docs:
-                    last_history = history_docs[0].to_dict()
-                    open_since = last_history['start_time'].astimezone(TIMEZONE)
-                    last_known_open_times[doc_id] = open_since
-                    display_info = f"Open since {open_since.strftime('%-I:%M%p').lower()}"
-                else:
-                    display_info = "Open"
+            status = "Open"
     else:
         if "lowering" in raw_status:
-            display_status = "OPENING"
-            display_info = "Opening right now..."
+            status = "Opening"
         elif "raising" in raw_status:
-            display_status = "CLOSING"
-            display_info = "Closing right now..."
+            status = "Closing"
         elif "work in progress" in raw_status:
-            display_status = "CLOSED"
-            display_info = "Closed for construction"
+            status = "Construction"
         else:
-            display_status = "CLOSED"
-            display_info = "Currently closed."
+            status = "Closed"
 
     return {
         "name": name,
         "available": available,
-        "display_status": display_status,
-        "display_info": display_info
+        "status": status,
+        "raw_status": raw_status,
+        "upcoming_closures": upcoming_closures
     }
 
 def interpret_tracked_status(raw_status):
@@ -303,8 +276,7 @@ def update_firestore(bridges, region, shortform):
             'live': {
                 'available': interpreted_status['available'],
                 'raw_status': bridge['raw_status'],
-                'display_status': interpreted_status['display_status'],
-                'display_info': interpreted_status['display_info'],
+                'status': interpreted_status['status'],
                 'upcoming_closures': [
                     {
                         'type': closure['type'],
@@ -348,7 +320,6 @@ def update_firestore(bridges, region, shortform):
                 
                 last_known_state[doc_id]['live'] = copy.deepcopy(new_data['live'])
             else:
-                # If no changes, preserve the existing last_updated time
                 new_data['live']['last_updated'] = old_data['live']['last_updated']
 
     if update_needed:

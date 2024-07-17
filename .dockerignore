@@ -1,0 +1,20 @@
+# .dockerignore
+
+# Usual suspects
+.env
+*.pyc
+__pycache__
+.git
+.gitignore
+
+# Remove macOS things
+.DS_Store
+
+# Firebase auth json key
+bridge-up-firebase-auth.json
+
+# Virtual environment
+venv/
+ENV/
+env/
+.venv/

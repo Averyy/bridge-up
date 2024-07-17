@@ -1,6 +1,6 @@
 #scrapyer.py
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, initialize_app, firestore
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -10,12 +10,18 @@ import re
 import copy
 import random
 import string
+import os
+import json
+from dotenv import load_dotenv
 from config import BRIDGE_URLS, BRIDGE_COORDINATES
 from cachetools import TTLCache
 from stats_calculator import calculate_bridge_statistics
 
+load_dotenv()  # This loads the variables from .env
+
 # Initialize Firebase
-cred = credentials.Certificate('bridge-up-firebase-auth.json')
+cred_json = json.loads(os.getenv('FIREBASE_CREDENTIALS'))
+cred = credentials.Certificate(cred_json)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 

@@ -11,8 +11,6 @@ def calculate_bridge_statistics(history_data, doc_ref, batch):
     total_entries = 0
     batch_operation_count = 0
 
-    # print(f"\nProcessing {total_entries} entries for bridge {doc_ref.id}")
-
     for i, entry in enumerate(history_data):
         if not isinstance(entry, dict) or 'status' not in entry:
             # print(f"Skipping invalid entry at index {i}")
@@ -21,11 +19,10 @@ def calculate_bridge_statistics(history_data, doc_ref, batch):
         status = entry['status']
         duration = entry.get('duration')
 
-        # print(f"Entry {i}: ID: {entry['id']}, Status: {status}, Duration: {duration}")
-
         if duration is None:
             continue  # Keep ongoing entries
         elif status in ['Unavailable (Closed)', 'Available (Raising Soon)']:
+            #Only keep the closed and raising soon, use them for stats
             total_entries += 1  # Count this entry
             if status == 'Unavailable (Closed)':
                 duration_minutes = duration / 60
@@ -43,15 +40,10 @@ def calculate_bridge_statistics(history_data, doc_ref, batch):
             elif status == 'Available (Raising Soon)':
                 raising_soon_durations.append(duration / 60)
         else:
+            # deletes "Available" and "Unavailable (Construction)"
             delete_ids.append(entry['id'])
             batch.delete(doc_ref.collection('history').document(entry['id']))
             batch_operation_count += 1
-            # print(f"Deleting: Entry {i}, ID: {entry['id']}, Status: {status}")
-
-    # print(f"\nDeleting {len(delete_ids)} entries")
-    # print(f"Total entries: {total_entries}")
-    # print(f"Total closure durations: {len(closure_durations)}")
-    # print(f"Closure buckets: {closure_buckets}")
 
     # Calculate statistics
     stats = {}
@@ -84,6 +76,6 @@ def calculate_confidence_interval(data):
     margin = 1.96 * (std_dev / math.sqrt(len(data)))  # 95% confidence interval
     
     return {
-        'lower': math.floor(max(0, avg - margin)),  # Round down
-        'upper': math.ceil(avg + margin)  # Round up
+        'lower': math.floor(max(0, avg - margin)),
+        'upper': math.ceil(avg + margin)
     }

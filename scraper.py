@@ -3,7 +3,7 @@ import firebase_admin
 from firebase_admin import credentials, initialize_app, firestore
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import unicodedata
 import re
@@ -13,7 +13,7 @@ import string
 import os
 import json
 from dotenv import load_dotenv
-from config import BRIDGE_URLS, BRIDGE_COORDINATES
+from config import BRIDGE_URLS, BRIDGE_DETAILS
 from cachetools import TTLCache
 from stats_calculator import calculate_bridge_statistics
 
@@ -58,8 +58,9 @@ def parse_date(date_str):
     except ValueError:
         print(f"Invalid date string: {date_str}")
         return None, False
-
+    
 def parse_old_style(soup):
+    current_time = datetime.now(TIMEZONE)
     bridges = []
     bridge_tables = soup.select('table#grey_box')
     
@@ -67,8 +68,6 @@ def parse_old_style(soup):
         name = table.select_one('span.lgtextblack').text.strip()
         status_span = table.select_one('span#status')
         current_status = status_span.text.strip() if status_span else "Unknown"
-        
-        available = "available" in current_status.lower()
         
         upcoming_closures = []
         upcoming_span = table.select_one('span.lgtextblack10')
@@ -87,11 +86,50 @@ def parse_old_style(soup):
 
         bridges.append({
             'name': name,
-            'available': available,
             'raw_status': current_status,
             'upcoming_closures': upcoming_closures
         })
-    
+
+    # Parse planned closures (construction)
+    bridge_planned_closures = soup.select('div.closuretext')
+    for closure in bridge_planned_closures:
+        closure_text = closure.text.strip()
+        match = re.search(r'Bridge (\d+[A-Z]?) Closure\. Effective: (\w+ \d{2}, \d{4})(?: - (\w+ \d{2}, \d{4}))?, (\d{2}:\d{2} - \d{2}:\d{2})', closure_text)
+        if match:
+            bridge_number, start_date, end_date, time_range = match.groups()
+            start_time, end_time = time_range.split(' - ')
+            
+            end_date = end_date or start_date  # If end_date is None, use start_date
+
+            try:
+                start_date = datetime.strptime(start_date, '%b %d, %Y').date()
+                end_date = datetime.strptime(end_date, '%b %d, %Y').date()
+                start_time = datetime.strptime(start_time, '%H:%M').time()
+                end_time = datetime.strptime(end_time, '%H:%M').time()
+            except ValueError:
+                continue  # Skip invalid date formats
+
+            for current_date in (start_date + timedelta(days=n) for n in range((end_date - start_date).days + 1)):
+                day_start = TIMEZONE.localize(datetime.combine(current_date, start_time))
+                day_end = TIMEZONE.localize(datetime.combine(current_date, end_time))
+
+                if day_end > current_time:
+                    planned_closure = {
+                        'type': 'Construction',
+                        'time': day_start,
+                        'end_time': day_end,
+                        'longer': False
+                    }
+
+                    for bridge in bridges:
+                        for region, bridge_info in BRIDGE_DETAILS.items():
+                            if bridge['name'] in bridge_info and bridge_info[bridge['name']].get('number') == bridge_number:
+                                bridge['upcoming_closures'].append(planned_closure)
+                                break
+                        else:
+                            continue
+                        break
+
     return bridges
 
 def parse_new_style(soup):
@@ -139,11 +177,21 @@ def scrape_bridge_data(url):
     else:
         return parse_old_style(soup)
     
-def interpret_bridge_status(bridge_data, db, region_short):
+def interpret_bridge_status(bridge_data):
     name = bridge_data['name']
     raw_status = bridge_data['raw_status'].lower()
     upcoming_closures = bridge_data.get('upcoming_closures', [])
-    current_time = datetime.now(TIMEZONE)
+
+    # Data unavailable is message returned for new style bridges if service is down
+    if "data unavailable" in raw_status:
+        return {
+            "name": name,
+            "available": False,
+            "status": "Unknown",
+            "raw_status": bridge_data['raw_status'],
+            "upcoming_closures": upcoming_closures
+        }
+
 
     available = "available" in raw_status and "unavailable" not in raw_status
     status = "Unknown"
@@ -173,11 +221,15 @@ def interpret_bridge_status(bridge_data, db, region_short):
 
 def interpret_tracked_status(raw_status):
     raw_status = raw_status.lower()
+    if "data unavailable" in raw_status:
+        return "Unknown"
     if "available" in raw_status and "unavailable" not in raw_status:
         if "raising soon" in raw_status:
             return "Available (Raising Soon)"
         else:
             return "Available"
+    elif "work in progress" in raw_status:
+        return "Unavailable (Construction)"
     else:
         return "Unavailable (Closed)"
 
@@ -193,6 +245,7 @@ def sanitize_document_id(shortcut, doc_id):
     return sanitized_doc_id
 
 def generate_history_doc_id(current_time):
+    # Generated as Jul15-1325-abcd (month date - event start time - 4 random letters)
     formatted_time = current_time.strftime('%b%d-%H%M')
     unique_id = ''.join(random.choices(string.ascii_lowercase, k=4))
     return f"{formatted_time}-{unique_id}"
@@ -271,15 +324,15 @@ def update_firestore(bridges, region, shortform):
         doc_ref = db.collection('bridges').document(doc_id)
 
         current_time = datetime.now(TIMEZONE)
-        interpreted_status = interpret_bridge_status(bridge, db, shortform)
+        interpreted_status = interpret_bridge_status(bridge)
 
         new_data = {
             'name': bridge['name'],
             'region': region,
             'region_short': shortform,
             'coordinates': firestore.GeoPoint(
-                BRIDGE_COORDINATES.get(region, {}).get(bridge['name'], {}).get('lat', 0),
-                BRIDGE_COORDINATES.get(region, {}).get(bridge['name'], {}).get('lng', 0)
+                BRIDGE_DETAILS.get(region, {}).get(bridge['name'], {}).get('lat', 0),
+                BRIDGE_DETAILS.get(region, {}).get(bridge['name'], {}).get('lng', 0)
             ),
             'live': {
                 'available': interpreted_status['available'],
@@ -289,7 +342,8 @@ def update_firestore(bridges, region, shortform):
                     {
                         'type': closure['type'],
                         'time': closure['time'],
-                        'longer': closure['longer']
+                        'longer': closure['longer'],
+                        'end_time': closure.get('end_time')
                     }
                     for closure in bridge['upcoming_closures']
                 ]

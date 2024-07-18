@@ -1,19 +1,22 @@
-# Bridge Up Backend
+# 🔼🌉🔽 Bridge Up Scraper
 
 [![Docker Image](https://img.shields.io/docker/v/averyyyy/bridge-up?style=flat-square&logo=docker)](https://hub.docker.com/r/averyyyy/bridge-up)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 ## Description
-Bridge Up Backend is a Python-based service that scrapes bridge status information from the Great Lakes St. Lawrence Seaway website and provides statistical analysis. It uses Flask, BeautifulSoup, and APScheduler, and is containerized using Docker for ease of deployment.
+Bridge Up Scraper is a Python-based service that monitors and analyzes bridge statuses along the Great Lakes St. Lawrence Seaway. It scrapes real-time data from official websites, processes this information, and stores it in Firebase Firestore. Containerized with Docker, it provides comprehensive insights into bridge operations with automated updates. 
 
 ## Features
-- Scrapes bridge status information from multiple regions
-- Calculates and stores statistical data about bridge operations
-- Provides daily updates of bridge statistics
-- Uses Firebase for data storage
-- Containerized with Docker
+- 👀 Scrapes bridge status information from multiple regions
+- 📊 Stores and manages historical activity logs
+- 🗓️ Organizes and displays current and upcoming bridge events
+- 📈 Calculates statistics from historical data
+- 🔥 Utilizes Firebase Firestore for efficient data storage
+- 🧹 Automatically cleans up old and irrelevant historical data
+- 🐳 Containerized with Docker for easy deployment
 
 ## Prerequisites
+- Firebase
 - Docker
 - Python 3.9+
 - pip
@@ -51,7 +54,7 @@ pip install -r requirements.txt
 python start_flask.py
 ```
 
-### Docker/Production Setup
+### 🐳 Docker Production Setup
 
 You can either build the Docker image yourself below, or download it from Docker Hub by clicking [here](https://hub.docker.com/repository/docker/averyyyy/bridge-up). The image is updated via a Github Workflow every time a commit it made.
 
@@ -74,9 +77,10 @@ Bridge URLs and coordinates are configured in `config.py`. Modify this file to a
 ## Scheduler
 
 The application uses APScheduler to run tasks and can be managed inside the `start_flask.py` and `start_waitress.py` files:
-- Scrapes and updates bridge data every 30 seconds from 6:00 AM to 9:59 PM
-- Scrapes and updates bridge data every 60 seconds from 10:00 PM to 5:59 AM
-- Runs daily statistics update at 4 AM
+
+- 🌞 Scrapes and updates bridge data every 30 seconds from 6:00 AM to 9:59 PM
+- 🌙 Scrapes and updates bridge data every 60 seconds from 10:00 PM to 5:59 AM
+- 🧮 Runs daily statistics update at 4 AM
 
 ## Files
 
@@ -89,3 +93,7 @@ The application uses APScheduler to run tasks and can be managed inside the `sta
 ## Contributing
 
 Contributions are welcome. Please submit a pull request or create an issue for any features or bug fixes.
+
+## License
+
+GPL v3: You can do whatever you want as long you give attribution and the software you use it in also has a open license. 

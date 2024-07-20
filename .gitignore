@@ -28,8 +28,8 @@ coverage.xml
 .vscode/
 # Remove macOS things
 .DS_Store
-# Firebase auth json key
-bridge-up-firebase-auth.json
+# Firebase auth json keys
+*.json
 # Vim temporary files
 *.swp
 # SSL certificates

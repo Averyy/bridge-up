@@ -11,17 +11,19 @@ import copy
 import random
 import string
 import os
-import json
-from dotenv import load_dotenv
 from config import BRIDGE_URLS, BRIDGE_DETAILS
 from cachetools import TTLCache
 from stats_calculator import calculate_bridge_statistics
 
-load_dotenv()  # This loads the variables from .env
+
+# Get Firebase creds
+if os.environ.get('DOCKER_ENV'):
+    cred_path = '/app/data/firebase-auth.json'
+else:
+    cred_path = os.path.join(os.path.dirname(__file__), 'firebase-auth.json')
 
 # Initialize Firebase
-cred_json = json.loads(os.getenv('FIREBASE_CREDENTIALS'))
-cred = credentials.Certificate(cred_json)
+cred = credentials.Certificate(cred_path)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 

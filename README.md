@@ -29,13 +29,7 @@ This is a hobby project so expect breaking changes. Don't aggressively scrape th
 
 1. Clone the repository
 
-2. Create a `.env` file in the project root with the following content:
-
-```sh
-FIREBASE_CREDENTIALS={"type": "service_account","project_id": "your-project-id", ...}
-```
-
-Replace the placeholder with your actual Firebase credentials.
+2. Add your Firebase credentials `firebase-auth.json` file in the project root:
 
 2. Create a virtual environment:
 
@@ -66,10 +60,10 @@ You can either build the Docker image yourself below, or download it from Docker
 docker build -t bridge-up-backend .
 ```
 
-2. Run the Docker container (make sure to provide the FIREBASE_CREDENTIALS env variable):
+2. Run the Docker container (make sure to provide the path to your Firebase credentials file called `firebase-auth.json`):
 
 ```sh
-docker run -p 5000:5000 -e FIREBASE_CREDENTIALS bridge-up-backend
+docker run -p 5000:5000 /path/on/host/firebase-auth.json:/app/data/firebase-auth.json bridge-up-backend
 ```
 
 ## Configuration

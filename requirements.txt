@@ -8,4 +8,3 @@ apscheduler
 waitress
 lxml
 cachetools
-python-dotenv

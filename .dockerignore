@@ -10,8 +10,8 @@ __pycache__
 # Remove macOS things
 .DS_Store
 
-# Firebase auth json key
-bridge-up-firebase-auth.json
+# Firebase auth json keys
+*.json
 
 # Virtual environment
 venv/

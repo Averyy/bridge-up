@@ -21,9 +21,7 @@ COPY . .
 
 # Create directory for persistent data if needed
 RUN mkdir -p /app/data
-
-# Set environment variables
-ENV FIREBASE_CREDENTIALS=${FIREBASE_CREDENTIALS}
+ENV DOCKER_ENV=true
 
 # Expose port 5000
 EXPOSE 5000

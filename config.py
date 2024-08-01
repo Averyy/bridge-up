@@ -41,11 +41,12 @@ BRIDGE_DETAILS = {
         'Victoria Bridge Upstream (Cycling Path)': {'lat': 45.49234276250341, 'lng': -73.5168207947014},
         'Sainte-Catherine/RécréoParc Bridge': {'lat': 45.4080536309029, 'lng': -73.56725875784645}
     },
-    'Kahnawake': {
-		# Not sure which is which or if i got the right bridges here, might have them backwards or incorrect completely
-        'CP Railway Bridge 7A': {'lat': 45.4112624483958, 'lng': -73.66203405574073},
-        'CP Railway Bridge 7B': {'lat': 45.411294284530854, 'lng': -73.66214553001862}
-    },
+	# K is just CP railway bridges, not worth logging for consumers
+    # 'Kahnawake': {
+	# 	# Not sure which is which or if i got the right bridges here, might have them backwards or incorrect completely
+    #     'CP Railway Bridge 7A': {'lat': 45.4112624483958, 'lng': -73.66203405574073},
+    #     'CP Railway Bridge 7B': {'lat': 45.411294284530854, 'lng': -73.66214553001862}
+    # },
     'Salaberry / Beauharnois / Suroît Region': {
         'St-Louis-de-Gonzague Bridge': {'lat': 45.232607447464225, 'lng': -74.00297750906498},
         'Larocque Bridge (Salaberry-de-Valleyfield)': {'lat': 45.22588000852819, 'lng': -74.11479220520631}

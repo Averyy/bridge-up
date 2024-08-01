@@ -96,7 +96,7 @@ def parse_old_style(soup):
     bridge_planned_closures = soup.select('div.closuretext')
     for closure in bridge_planned_closures:
         closure_text = closure.text.strip()
-        match = re.search(r'Bridge (\d+[A-Z]?) Closure\. Effective: (\w+ \d{2}, \d{4})(?: - (\w+ \d{2}, \d{4}))?, (\d{2}:\d{2} - \d{2}:\d{2})', closure_text)
+        match = re.search(r'Bridge (\d+[A-Z]?) Closure\. Effective: (\w+ \d{1,2}, \d{4})(?: - (\w+ \d{1,2}, \d{4}))?, (\d{2}:\d{2} - \d{2}:\d{2})', closure_text)
         if match:
             bridge_number, start_date, end_date, time_range = match.groups()
             start_time, end_time = time_range.split(' - ')

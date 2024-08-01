@@ -13,10 +13,11 @@ BRIDGE_URLS = {
         'region': 'Montreal South Shore',
         'shortform': 'MSS'
     },
-    'https://seaway-greatlakes.com/bridgestatus/detailsmai?key=BridgeK': {
-        'region': 'Kahnawake',
-        'shortform': 'K'
-    },
+    # It's just CP Rail bridges, not vehicles/public crossings
+    # 'https://seaway-greatlakes.com/bridgestatus/detailsmai?key=BridgeK': {
+    #     'region': 'Kahnawake',
+    #     'shortform': 'K'
+    # },
     'https://www.seaway-greatlakes.com/bridgestatus/detailsmai2?key=BridgeSBS': {
         'region': 'Salaberry / Beauharnois / Suroît Region',
         'shortform': 'SBS'

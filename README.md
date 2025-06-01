@@ -1,94 +1,83 @@
-# 🔼🌉🔽 Bridge Up Scraper
+# 🔼🌉🔽 Bridge Up Backend
 
 [![Docker Image](https://img.shields.io/docker/v/averyyyy/bridge-up?style=flat-square&logo=docker)](https://hub.docker.com/r/averyyyy/bridge-up)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-## Description
-Bridge Up Scraper is a Python-based service that monitors and analyzes bridge statuses along the Great Lakes St. Lawrence Seaway. It scrapes real-time data from official websites, processes this information, and stores it in Firebase Firestore. Containerized with Docker, it provides comprehensive insights into bridge operations with automated updates. 
+Real-time bridge status monitoring for the St. Lawrence Seaway. Scrapes bridge data, calculates predictive statistics, and serves it via Firebase for the [Bridge Up iOS app](https://github.com/averyyyy/bridge-up).
 
-This is a hobby project so expect breaking changes. Don't aggressively scrape their website or they will probably block your IP. Also because it completely relies on the St Lawrence Seaway website, if they change their HTML layout or block public access then it will stop working completely 💀 No warranty or guarantees of any kind provided, use at your own risk.
+⚠️ **Hobby project** - Depends entirely on St Lawrence Seaway websites. If they change HTML or block access, it breaks. No warranty provided.
 
 ## Features
-- 👀 Scrapes bridge status information from multiple regions
-- 📊 Stores and manages historical activity logs
-- 🗓️ Organizes and displays current and upcoming bridge events
-- 📈 Calculates statistics from historical data
-- 🔥 Utilizes Firebase Firestore for efficient data storage
-- 🧹 Automatically cleans up old and irrelevant historical data
-- 🐳 Containerized with Docker for easy deployment
+- 👀 Monitors bridge status from 4 regions (13 bridges total)
+- 🚀 Concurrent scraping - all bridges in 0.7 seconds
+- 📊 Calculates predictive statistics from historical data
+- 🔄 Real-time updates every 30-60 seconds
+- 🔥 Firebase Firestore for data storage
+- 🧹 Automatic cleanup of old data (300 entry history)
+- 🐳 Docker containerized with GitHub Actions CI/CD
 
-## Prerequisites
-- Firebase
-- Docker
-- Python 3.9+
-- pip
+## Quick Start
 
-## Setup
+### Prerequisites
+- Docker (recommended) or Python 3.9+
+- Firebase project with Firestore
+- `firebase-auth.json` credentials file
 
-### Local Development Setup
+### 🐳 Docker (Production)
 
-1. Clone the repository
+```bash
+# Pull from Docker Hub
+docker pull averyyyy/bridge-up:latest
 
-2. Add your Firebase credentials `firebase-auth.json` file in the project root:
-
-2. Create a virtual environment:
-
-```sh
-python -m venv venv
-source venv/bin/activate  # On Windows, use venv\Scripts\activate
+# Run with your Firebase credentials
+docker run -p 5000:5000 -v /path/to/firebase-auth.json:/app/data/firebase-auth.json averyyyy/bridge-up:latest
 ```
 
-3. Install dependencies:
+### 🔧 Local Development
 
-```sh
+```bash
+# Clone and setup
+git clone https://github.com/averyyyy/bridge-up-backend
+cd bridge-up-backend
 pip install -r requirements.txt
-```
 
-4. Run the application:
-
-```sh
+# Add firebase-auth.json to project root
+# Run development server
 python start_flask.py
 ```
 
-### 🐳 Docker Production Setup
 
-You can either build the Docker image yourself below, or download it from Docker Hub by clicking [here](https://hub.docker.com/repository/docker/averyyyy/bridge-up). The image is updated via a Github Workflow every time a commit it made.
+## Architecture
 
-1. Build the Docker image:
-
-```sh
-docker build -t bridge-up-backend .
+```
+St. Lawrence Seaway Websites → Python Scraper → Firebase → iOS App
 ```
 
-2. Run the Docker container (make sure to provide the path to your Firebase credentials file called `firebase-auth.json`):
+### Key Files
+- `scraper.py` - Main scraping logic with concurrent execution
+- `stats_calculator.py` - Calculates bridge statistics and predictions
+- `config.py` - Bridge URLs and coordinates configuration
+- `start_flask.py` - Development server
+- `start_waitress.py` - Production server
 
-```sh
-docker run -p 5000:5000 /path/on/host/firebase-auth.json:/app/data/firebase-auth.json bridge-up-backend
-```
-
-## Configuration
-
-Bridge URLs and coordinates are configured in `config.py`. A couple of the bridges i'm not 100% sure about their location (since I don't live in the area), and I've only got the bridge numbers for St Catharines and Port Colburne. Modify this file or submit a pull request if you know what they should be.
-
-## Scheduler
-
-The application uses APScheduler to run tasks and can be managed inside the `start_flask.py` and `start_waitress.py` files. This interval is pretty aggressive, so you should probably make it a longer interval or risk your IP getting banned.
-
+### Schedule
 - 🌞 Scrapes and updates bridge data every 30 seconds from 6:00 AM to 9:59 PM
 - 🌙 Scrapes and updates bridge data every 60 seconds from 10:00 PM to 5:59 AM
 - 🧮 Runs daily statistics update at 4 AM
 
-## Files
+## Testing
 
-- `scraper.py`: Main script for scraping and processing bridge data
-- `stats_calculator.py`: Calculates bridge statistics
-- `start_flask.py`: Starts the Flask development server
-- `start_waitress.py`: Starts the Waitress production server
-- `config.py`: Configuration for bridge URLs and coordinates
+```bash
+python test_parsers.py  # Basic parser tests
+# See TODO-Testing.md for comprehensive test roadmap
+```
 
 ## Contributing
 
-Contributions are welcome. Please submit a pull request or create an issue for any features or bug fixes.
+PRs welcome! Especially for:
+- Missing bridge coordinates/numbers in `config.py`
+- New bridge regions
+- Test coverage (see `TODO-Testing.md`)
 
 ## License
 

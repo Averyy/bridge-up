@@ -10,18 +10,25 @@ scheduler = BackgroundScheduler(timezone=TIMEZONE)
 def scrape_and_update_task():
     now = datetime.now(TIMEZONE)
     print(f'Scrape and update started at {now.strftime("%I:%M:%S%p").lower()}')
-    scrape_and_update()
+    try:
+        scrape_and_update()
+        print(f'Scrape and update completed successfully at {datetime.now(TIMEZONE).strftime("%I:%M:%S%p").lower()}')
+    except Exception as e:
+        print(f'ERROR: Scrape and update failed at {datetime.now(TIMEZONE).strftime("%I:%M:%S%p").lower()}: {e}')
+        raise  # Re-raise to allow APScheduler to handle the error
 
 def start_scheduler():
     if not scheduler.running:
         # Every 30 seconds from 6:00 AM to 9:59 PM
         scheduler.add_job(scrape_and_update_task, 'cron',
                           hour='6-21', minute='*', second='0,30',
-                          misfire_grace_time=60)
+                          misfire_grace_time=60, max_instances=3,
+                          coalesce=True, replace_existing=True)
         # Every 60 seconds from 10:00 PM to 5:59 AM
         scheduler.add_job(scrape_and_update_task, 'cron',
                           hour='22-23,0-5', minute='*', second='0',
-                          misfire_grace_time=120)
+                          misfire_grace_time=120, max_instances=3,
+                          coalesce=True, replace_existing=True)
         # Daily statistics update at 4 AM
         scheduler.add_job(daily_statistics_update, 'cron', hour=4, minute=0)
         

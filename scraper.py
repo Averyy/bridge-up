@@ -11,6 +11,8 @@ import copy
 import random
 import string
 import os
+import concurrent.futures
+import threading
 from config import BRIDGE_URLS, BRIDGE_DETAILS
 from cachetools import TTLCache
 from stats_calculator import calculate_bridge_statistics
@@ -170,9 +172,27 @@ def parse_new_style(soup):
     
     return bridges
 
-def scrape_bridge_data(url):
-    response = requests.get(url)
-    soup = BeautifulSoup(response.content, 'lxml')
+def scrape_bridge_data(url, timeout=10, retries=3):
+    """Scrape bridge data with timeout and retry logic."""
+    soup = None
+    for attempt in range(retries):
+        try:
+            response = requests.get(url, timeout=timeout, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            response.raise_for_status()
+            soup = BeautifulSoup(response.content, 'lxml')
+            break
+        except (requests.RequestException, requests.Timeout) as e:
+            if attempt == retries - 1:
+                print(f"ERROR: Failed to scrape {url} after {retries} attempts: {e}")
+                return []
+            print(f"WARNING: Attempt {attempt + 1} failed for {url}: {e}. Retrying...")
+            continue
+    
+    if soup is None:
+        print(f"ERROR: All attempts failed for {url}")
+        return []
     
     if soup.select_one('div.new-bridgestatus-container'):
         return parse_new_style(soup)
@@ -353,8 +373,13 @@ def update_firestore(bridges, region, shortform):
         }
 
         if doc_id not in last_known_state:
-            existing_doc = doc_ref.get()
-            if existing_doc.exists:
+            try:
+                existing_doc = doc_ref.get()
+            except Exception as e:
+                print(f"ERROR: Failed to read document {doc_id}: {e}")
+                existing_doc = None
+            
+            if existing_doc and existing_doc.exists:
                 existing_data = existing_doc.to_dict()
                 if 'statistics' in existing_data:
                     new_data['statistics'] = existing_data['statistics']
@@ -387,13 +412,51 @@ def update_firestore(bridges, region, shortform):
                 new_data['live']['last_updated'] = old_data['live']['last_updated']
 
     if update_needed:
-        batch.commit()
+        try:
+            batch.commit()
+        except Exception as e:
+            print(f"ERROR: Failed to commit Firebase batch for {region}: {e}")
+            raise
 
 # Can trigger externally as well:
-def scrape_and_update():
-    for url, info in BRIDGE_URLS.items():
+def process_single_region(url_info_pair):
+    """Process a single region's bridges with error handling."""
+    url, info = url_info_pair
+    try:
         bridges = scrape_bridge_data(url)
-        update_firestore(bridges, info['region'], info['shortform'])
+        if bridges:  # Only update if we got data
+            update_firestore(bridges, info['region'], info['shortform'])
+            return f"SUCCESS: {info['region']} ({len(bridges)} bridges)"
+        else:
+            return f"WARNING: No bridge data returned for {info['region']}"
+    except Exception as e:
+        return f"ERROR: Failed to process {info['region']}: {e}"
+
+def scrape_and_update():
+    """Main scraping function with concurrent execution and error handling."""
+    start_time = datetime.now(TIMEZONE)
+    print(f"Starting scrape_and_update at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # Use ThreadPoolExecutor for concurrent scraping (I/O bound operations)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="BridgeScraper") as executor:
+        # Submit all scraping tasks concurrently
+        future_to_region = {
+            executor.submit(process_single_region, (url, info)): info['region'] 
+            for url, info in BRIDGE_URLS.items()
+        }
+        
+        # Collect results with timeout
+        for future in concurrent.futures.as_completed(future_to_region, timeout=25):
+            region = future_to_region[future]
+            try:
+                result = future.result()
+                print(result)
+            except Exception as e:
+                print(f"ERROR: Unexpected error processing {region}: {e}")
+    
+    end_time = datetime.now(TIMEZONE)
+    duration = (end_time - start_time).total_seconds()
+    print(f"Completed scrape_and_update in {duration:.2f} seconds")
 
 if __name__ == '__main__':
     scrape_and_update()

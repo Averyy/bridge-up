@@ -7,6 +7,10 @@ These tests have ZERO impact on production - they're purely for development conf
 
 Run with: python3 test_parsers.py
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import unittest
 from datetime import datetime
 import pytz

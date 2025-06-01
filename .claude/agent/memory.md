@@ -24,7 +24,7 @@
   
 - **Testing Philosophy**: "Guardrails, Not Roadblocks"
   - No existing tests in project (startup velocity focus)
-  - Created `test_parsers.py` for core parsing logic
+  - Created `tests/test_parsers.py` for core parsing logic
   - Created comprehensive `TODO-Testing.md` for future implementation
   - Focus on business logic, not infrastructure
 
@@ -45,3 +45,27 @@
 - In-memory caching with `last_known_state` dictionary
 - Dual parser system (old/new website formats)
 - Status normalization for iOS app compatibility
+
+## Session: December 2025 - Comprehensive Test Suite Implementation
+
+### Test Suite Created
+**Purpose**: Protect against regressions when updating/changing code
+
+**Implemented Tests**:
+1. `tests/test_parsers.py` - Core HTML parsing (12 tests)
+2. `tests/test_statistics.py` - Prediction calculations (9 tests)  
+3. `tests/test_status_edge_cases.py` - Status interpretation (7 tests)
+4. `tests/test_configuration.py` - Config validation (5 tests)
+5. `run_tests.py` - One-command test runner
+
+**Key Testing Principle**: Test BOTH core functionality AND edge cases
+- Core: Happy path that must always work
+- Edge: Realistic scenarios we've seen
+
+**CRITICAL WORKFLOW CHANGE**:
+```bash
+# ALWAYS run before committing/deploying:
+python run_tests.py
+```
+
+Tests take <1 second - no excuse to skip them!

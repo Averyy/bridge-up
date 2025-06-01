@@ -6,6 +6,11 @@ Bridge Up Backend is a Python-based bridge monitoring service that scrapes real-
 
 **Core Value Proposition**: Authoritative bridge status data with intelligent predictions based on historical analysis.
 
+## Recent Critical Updates (June 2025)
+- **Fixed**: APScheduler stalling issue with request timeouts + `max_instances=3`
+- **Added**: Concurrent scraping with ThreadPoolExecutor (50x speedup)
+- **Implemented**: Comprehensive test suite (33 tests, <1s execution)
+
 ## Architecture Overview
 
 ```
@@ -20,6 +25,9 @@ Scheduled Updates          Statistical       Real-time Updates    Live Status
 - Historical data analysis for predictive confidence intervals
 - Firebase as the bridge between backend and iOS app
 - Docker containerization for reliable deployment
+- Dual parser system for old (table) and new (div) website formats
+- Concurrent execution with timeout protection (10s + 3 retries)
+- Test-first development workflow
 
 ## Monitored Bridge Network
 
@@ -41,10 +49,11 @@ Scheduled Updates          Statistical       Real-time Updates    Live Status
 
 - **Language**: Python 3.9+
 - **Web Framework**: Flask with APScheduler for development, Waitress for production
-- **Scraping**: httpx, BeautifulSoup4 for robust web scraping
+- **Scraping**: requests (with timeouts), BeautifulSoup4 for robust web scraping
 - **Database**: Firebase Firestore for real-time data synchronization
-- **Scheduling**: APScheduler with configurable intervals
-- **Deployment**: Docker with volume mounting for credentials
+- **Scheduling**: APScheduler with `max_instances=3`, `coalesce=True`
+- **Deployment**: Docker with GitHub Actions CI/CD
+- **Testing**: 33 tests covering core logic and edge cases
 - **Monitoring**: Comprehensive logging for debugging and reliability
 
 ## Core Files & Functionality
@@ -234,6 +243,30 @@ BRIDGE_DETAILS = {
 - **Memory usage**: Handle large historical datasets efficiently
 - **Cost monitoring**: Track Firebase operations for optimization
 
+## Development Workflow
+
+```bash
+# 1. Make changes
+# 2. Run tests (MANDATORY)
+python run_tests.py
+# 3. Deploy only if tests pass
+```
+
+## Common Pitfalls to Avoid
+1. **Never skip tests** - Always run `python run_tests.py` before deploying
+2. **Never remove request timeouts** - This caused the major stalling bug
+3. **Don't change Firebase schema** - iOS app depends on exact structure
+4. **Maintain concurrent execution** - Sequential would be 50x slower
+5. **Keep dual parser system** - Websites use different formats
+6. **Don't over-engineer** - This is a startup, ship fast
+
+## Performance Metrics
+- **Scraping Speed**: ~0.7 seconds for all 4 regions (13 bridges total)
+- **Test Execution**: <1 second for full test suite
+- **Firebase Writes**: Only on status changes (cost optimization)
+- **History Management**: Auto-cleanup keeps max 300 entries per bridge
+- **Uptime**: No stalling since timeout fix implementation
+
 ## Success Metrics
 
 - 99%+ scraping success rate during normal operations
@@ -241,6 +274,12 @@ BRIDGE_DETAILS = {
 - Accurate predictions within confidence intervals
 - Zero data loss during website outages
 - Cost-effective Firebase operations
+
+## Business Context
+- **Users**: Boaters and bridge operators who need real-time status
+- **Value Prop**: Not just status, but predictions based on historical patterns
+- **Competition**: Other apps just show open/closed, we predict duration
+- **iOS App**: Read-only consumer of this backend's data
 
 ## Relationship to iOS App
 

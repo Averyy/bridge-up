@@ -2,52 +2,40 @@
 
 ## Core Principle
 
-We follow a "Guardrails, Not Roadblocks" approach to testing. This philosophy acknowledges that as a small startup, we need to balance quality with development velocity. Our testing strategy focuses on protecting critical functionality without impeding progress.
+We test what could fail silently and impact users. We don't test infrastructure or obvious failures.
 
-## MVP Testing Approach
+**Key Rule**: Always run `python run_tests.py` before deploying or committing changes.
 
-**Priority**: Ship fast, test what matters most.
+## What We Test ✅
 
-### Critical Tests Only
+**Core Business Logic**:
+- HTML parsing functions (both old/new formats)
+- Status interpretation logic  
+- Statistics calculations (predictions)
+- Configuration validation
 
-We focus testing efforts on **core business logic** that:
-1. **Has complex edge cases** (parsing, data transformation)
-2. **Would fail silently** (wrong data vs obvious crashes)
-3. **Is hard to debug** (external dependencies, format changes)
-4. **Directly impacts users** (bridge status accuracy)
+**Why These**:
+1. Would fail silently (wrong data vs crashes)
+2. Hard to debug when broken
+3. Directly impacts iOS app users
+4. Complex edge cases exist
 
-### What We DON'T Test
+## What We DON'T Test ❌
 
-- **Infrastructure/plumbing**: APScheduler, Firebase, network requests
-- **Third-party libraries**: We trust well-maintained dependencies
-- **Simple getters/setters**: Low complexity, obvious when broken
-- **Integration flows**: Too brittle, changes frequently
+- Infrastructure (APScheduler, Firebase, HTTP)
+- Third-party libraries
+- Simple getters/setters
+- End-to-end flows
 
-### Bridge Up Specific Testing
+## Test Stats
 
-**Core Business Logic (Test These)**:
-- HTML parsing functions (`parse_old_style`, `parse_new_style`)
-- Status interpretation logic (`interpret_bridge_status`) 
-- Date/time parsing (`parse_date`)
+- **33 tests** covering core logic + edge cases
+- **<1 second** execution time
+- **4 test files** organized by domain
 
-**Infrastructure (Don't Test These)**:
-- HTTP requests to bridge websites
-- Firebase read/write operations
-- APScheduler job execution
-- End-to-end scraping flows
-
-### Test Organization
-
-- **Single file**: `test_parsers.py` (keep it simple)
-- **Real data**: Use actual HTML samples from live websites
-- **Edge cases**: Focus on the tricky scenarios that could break silently
-- **Fast execution**: Tests should run in <5 seconds total
-
-### Running Tests
+## Running Tests
 
 ```bash
-# Optional - tests are for development confidence only
-python3 test_parsers.py
+# MANDATORY before deployment
+python run_tests.py
 ```
-
-**Important**: Tests are purely for development. They have ZERO impact on production deployment or runtime.

@@ -14,6 +14,8 @@ This is the Python backend for Bridge Up - a bridge monitoring system that scrap
 
 ## Critical Rules - DO NOT VIOLATE
 
+- **ALWAYS run tests before committing or deploying** - use `python run_tests.py`
+
 - **NEVER create mock data or simplified components** unless explicitly told to do so
 - **NEVER replace existing complex components with simplified versions** - always fix the actual problem
 - **ALWAYS work with the existing codebase** - do not create new simplified alternatives
@@ -55,7 +57,7 @@ St. Lawrence Seaway Websites → Python Scraper → Data Processing → Firebase
 - **Trigger**: Daily at 3AM (prod) / 4AM (dev) via APScheduler
 - **Process**: Python calculates ALL statistics (not Firebase Functions)
 - **Key Fields**: average_closure_duration, closure_ci, closure_durations buckets
-- **Testing**: See `TODO-Testing.md` for comprehensive test plan
+- **Testing**: Run `python run_tests.py` to verify calculations
 
 ## Firebase Integration Rules
 
@@ -142,27 +144,41 @@ STATUS_MAPPING = {
 - Calculate averages correctly for iOS app predictions
 - Handle edge cases (no historical data, all same duration)
 
-## Development Commands
+## Development Workflow
 
-When working on this backend, use these commands:
+**⚠️ CRITICAL: Always run tests before committing or deploying!**
+
 ```bash
-# Run development server
+# 1. Make your changes
+# 2. Run tests (REQUIRED)
+python run_tests.py
+
+# 3. If tests pass, run development server
 python start_flask.py
 
-# Run production server  
-python start_waitress.py
-
-# Test scraper manually
-python scraper.py
+# Other commands:
+python start_waitress.py  # Production server
+python scraper.py         # Test scraper manually
 ```
 
-## Testing Guidelines
+**Never deploy without running tests first!**
 
-- Unit tests for parsers and extractors
-- Integration tests with real websites (sparingly)
-- Validate Firebase writes and reads
-- Test scheduling system behavior
-- Verify statistical calculations
+## Testing Requirements
+
+**⚠️ Tests are MANDATORY before deployment!**
+
+```bash
+# Always run before committing/deploying
+python run_tests.py
+```
+
+Implemented tests cover:
+- ✅ Core parsing logic (old/new HTML formats)
+- ✅ Statistics calculations (predictions)
+- ✅ Status interpretation (edge cases)
+- ✅ Configuration validation
+
+See `TESTING.md` for details. Tests take <1 second to run - no excuses!
 
 ## Error Handling Standards
 
@@ -202,12 +218,13 @@ While focusing on backend work, be aware that:
 
 ## Code Quality Checklist
 
+- [ ] **TESTS PASS** - `python run_tests.py` shows all green
 - [ ] Type hints added to all functions
 - [ ] Docstrings for all classes and public methods
 - [ ] Error handling for all network requests
 - [ ] Logging instead of print statements
 - [ ] No hardcoded values or credentials
-- [ ] Tests written for new functionality
+- [ ] Tests written/updated for changes
 - [ ] Firebase document structure validated
 - [ ] Statistical calculations verified
 - [ ] Scraping ethics respected (rate limits, etc.)

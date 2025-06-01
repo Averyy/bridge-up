@@ -28,11 +28,50 @@ coverage.xml
 .vscode/
 # Remove macOS things
 .DS_Store
-# Firebase auth json keys
-*.json
+# Firebase auth 
+firebase-auth.json
+*/firebase-auth.json
+**/firebase-auth.json
+firebase-*.json
+*-firebase-auth.json
+./**/firebase*.json
+# Claude local settings
+.claude/settings.local.json
+settings.local.json
 # Vim temporary files
 *.swp
 # SSL certificates
 *.pem
 # Python cache directories
 __pycache__/
+# IDE files
+.idea/
+*.iml
+*.iws
+*.sublime-project
+*.sublime-workspace
+# Testing and coverage
+htmlcov/
+.coverage
+.coverage.*
+.cache
+.hypothesis/
+.tox/
+*.cover
+coverage.html
+.pytest_cache/
+# Local environment
+.python-version
+local_settings.py
+instance/
+# Backup files
+*.bak
+*.backup
+*~
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+# Log files
+logs/
+*.log.*

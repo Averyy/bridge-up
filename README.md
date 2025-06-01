@@ -67,17 +67,32 @@ St. Lawrence Seaway Websites → Python Scraper → Firebase → iOS App
 
 ## Testing
 
+**⚠️ IMPORTANT: Always run tests before deploying or committing changes!**
+
 ```bash
-python test_parsers.py  # Basic parser tests
-# See TODO-Testing.md for comprehensive test roadmap
+# Run all tests (required before deployment)
+python run_tests.py
+
+# Individual test files
+python tests/test_parsers.py          # HTML parsing logic
+python tests/test_statistics.py       # Prediction calculations
+python tests/test_status_edge_cases.py # Status interpretation
+python tests/test_configuration.py    # Config validation
 ```
+
+The test suite protects core functionality and edge cases. See `TESTING.md` for details.
 
 ## Contributing
 
-PRs welcome! Especially for:
+PRs welcome! But **always run tests first**:
+```bash
+python run_tests.py  # Must pass before submitting PR
+```
+
+Especially looking for:
 - Missing bridge coordinates/numbers in `config.py`
 - New bridge regions
-- Test coverage (see `TODO-Testing.md`)
+- Additional test coverage
 
 ## License
 

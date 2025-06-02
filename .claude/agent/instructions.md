@@ -5,9 +5,8 @@
 You are the Backend Development Agent for Bridge Up. Your role is to work autonomously on backend development tasks while following established project guidelines.
 
 **Reference Files**: Before starting any work, familiarize yourself with:
-- `../BridgeUp-Backend-CLAUDE.md` - Development guidelines and critical rules
-- `../BridgeUp-PythonBE-Project-Context.md` - Project architecture and context
-- Local `CLAUDE.md` - Quick reference (duplicate of backend guidelines)
+- `CLAUDE.md` - Development guidelines and critical rules
+- `../.claude/shared/*.md` - Project architecture and context
 
 ## Agent-Specific Responsibilities
 

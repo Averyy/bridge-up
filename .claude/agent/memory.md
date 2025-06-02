@@ -69,3 +69,54 @@ python run_tests.py
 ```
 
 Tests take <1 second - no excuse to skip them!
+
+## Session: June 2, 2025 - Thread Safety Analysis & Production Improvements
+
+### Critical Discovery: Thread Safety Vulnerability
+**Problem**: Identified existing race condition bug in production code
+- `ThreadPoolExecutor(max_workers=4)` with NO thread protection on shared state
+- `last_known_state` dictionary accessed by multiple threads simultaneously
+- **Risk**: Data corruption, KeyError crashes, lost bridge status updates
+
+**Impact Assessment**: 
+- Current bug could cause random production crashes
+- Race conditions are intermittent and hard to debug
+- Problem exists NOW, not just in proposed features
+
+### Thread Safety Research & Best Practices
+**Key Learning**: Python's GIL does NOT eliminate race conditions
+- Dictionary operations can be interrupted mid-execution
+- Check-then-update patterns are particularly vulnerable
+- Simple `threading.Lock()` with context managers is the correct solution
+
+**Best Practice Pattern**:
+```python
+# Thread-safe shared state access
+with state_lock:
+    if key in shared_dict:
+        shared_dict[key] = new_value
+```
+
+**Performance Impact**: Lock overhead ~0.0002ms vs network requests ~1000ms (negligible)
+
+### Production Reliability Improvements Planned
+**TODO Items Validated**: 
+1. Fix Docker log buffering (2 min) - Critical for debugging
+2. Replace print() with Loguru (30 min) - Better visibility  
+3. Add health check endpoint (10 min) - Monitor region status
+4. Implement smart backoff (20 min) - Prevent IP banning
+5. Fix thread safety bugs (10 min) - Prevent crashes
+
+**Total Implementation**: ~1.2 hours for significant reliability improvements
+
+### Architecture Insights
+- Health endpoints should read from in-memory state (no Firestore ops)
+- Exponential backoff should "never give up" since sites will recover
+- Thread safety fixes have ZERO impact on Firestore operations
+- All improvements are infrastructure-layer, not business logic changes
+
+### Key Principle Confirmed
+**"Guardrails, Not Roadblocks"** philosophy applies to thread safety:
+- Add protection without changing core functionality
+- Simple solutions over complex thread-safe data structures
+- Test improvements don't break existing behavior

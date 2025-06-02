@@ -3,7 +3,7 @@
 [![Docker Image](https://img.shields.io/docker/v/averyyyy/bridge-up?style=flat-square&logo=docker)](https://hub.docker.com/r/averyyyy/bridge-up)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-Real-time bridge status monitoring for the St. Lawrence Seaway. Scrapes bridge data, calculates predictive statistics, and serves it via Firebase for the [Bridge Up iOS app](https://github.com/averyyyy/bridge-up).
+Real-time bridge status monitoring for the St. Lawrence Seaway. Scrapes bridge data, calculates predictive statistics, and serves it via Firestore.
 
 ⚠️ **Hobby project** - Depends entirely on St Lawrence Seaway websites. If they change HTML or block access, it breaks. No warranty provided.
 

@@ -72,16 +72,23 @@ St. Lawrence Seaway Websites → Python Scraper → Data Processing → Firebase
 
 ## Bridge Status Mapping (DO NOT CHANGE)
 
+The status mapping is implemented in `interpret_bridge_status()` function in `scraper.py`:
+
 ```python
-# Existing status normalization - preserve exactly
-STATUS_MAPPING = {
-    "open": "open",
-    "closed": "closed", 
-    "closing soon": "closing soon",
-    "opening": "opening",
-    "construction": "construction",
-    "unknown": "unknown"
-}
+# Status normalization logic (lines 202-242):
+# - "Data unavailable" → "Unknown" (website service down)
+# - "Available" → "Open"
+# - "Available (raising soon)" → "Closing soon"
+# - "Unavailable" → "Closed"
+# - "Unavailable (lowering)" → "Opening"
+# - "Unavailable (raising)" → "Closing"
+# - "Unavailable (work in progress)" → "Construction"
+# 
+# BUG: When website returns garbage (no "available"/"unavailable" words),
+# it defaults to "Closed" instead of "Unknown"
+
+# Final statuses written to Firebase:
+# "Open", "Closed", "Closing soon", "Opening", "Construction", "Unknown"
 ```
 
 ## Monitored Bridges

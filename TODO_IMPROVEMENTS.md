@@ -457,3 +457,42 @@ with last_known_state_lock:
 - Multiple health check endpoints (when you have microservices)
 
 But for now, **ship it!** 🚀
+
+## 5. Fix Status Mismatch Bug - Garbage Data Shows as "Closed" ⚠️ CRITICAL (5 minutes)
+
+### Bug Summary
+When the website returns unrecognized/garbage data, the backend defaults to "Closed" instead of "Unknown", causing false closure predictions in the iOS app.
+
+### Root Cause
+**Location**: `scraper.py`, line 234
+
+When we can't determine the bridge status from the website data, we default to "Closed" instead of "Unknown".
+
+### The Simple Fix
+Change line 234 from:
+```python
+status = "Closed"  # ❌ Wrong default
+```
+To:
+```python
+status = "Unknown"  # ✅ Correct default for unrecognized data
+```
+
+### Why This Happens
+Normal website statuses always contain "Available" or "Unavailable":
+- "Available" → Open
+- "Unavailable" → Closed
+- "Data unavailable" → Unknown (special case)
+
+But when the website returns garbage (server errors, maintenance pages, etc.) that contains neither word, we currently default to "Closed" when we should default to "Unknown".
+
+### Impact
+- Users see false "Bridge Closed" with opening predictions
+- Should show "?" icon with "Unknown" status instead
+
+### Testing
+After making the fix, test with garbage data:
+- Empty string → Should show "Unknown"
+- "Server Error" → Should show "Unknown"  
+- "Maintenance Mode" → Should show "Unknown"
+- Any unrecognized text → Should show "Unknown"

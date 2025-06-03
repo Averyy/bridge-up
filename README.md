@@ -15,6 +15,9 @@ Real-time bridge status monitoring for the St. Lawrence Seaway. Scrapes bridge d
 - 🔥 Firebase Firestore for data storage
 - 🧹 Automatic cleanup of old data (300 entry history)
 - 🐳 Docker containerized with GitHub Actions CI/CD
+- 🔒 Thread-safe concurrent execution
+- 📈 Smart exponential backoff for failed regions (never gives up)
+- 📝 Clean, structured logging with Loguru
 
 ## Quick Start
 
@@ -78,6 +81,10 @@ python tests/test_parsers.py          # HTML parsing logic
 python tests/test_statistics.py       # Prediction calculations
 python tests/test_status_edge_cases.py # Status interpretation
 python tests/test_configuration.py    # Config validation
+python tests/test_thread_safety.py    # Concurrent access safety
+python tests/test_backoff.py          # Exponential retry logic
+python tests/test_network_backoff.py  # Network failure handling
+python tests/test_logging.py          # Logger configuration
 ```
 
 The test suite protects core functionality and edge cases. See `TESTING.md` for details.

@@ -11,11 +11,23 @@ import copy
 import random
 import string
 import os
+import sys
 import concurrent.futures
 import threading
 from config import BRIDGE_URLS, BRIDGE_DETAILS
 from cachetools import TTLCache
 from stats_calculator import calculate_bridge_statistics
+from loguru import logger
+
+# Configure logger for cleaner output
+logger.remove()  # Remove default handler
+logger.add(
+    sys.stderr,
+    format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
+    level="INFO",
+    enqueue=False,    # Ensures immediate output in Docker logs
+    colorize=False    # Disable colors for Docker (containers don't support ANSI colors)
+)
 
 
 # Get Firebase creds
@@ -34,6 +46,11 @@ TIMEZONE = pytz.timezone('America/Toronto')
 
 # Store last known state
 last_known_state = {}
+last_known_state_lock = threading.Lock()
+
+# Smart backoff tracking - WITH THREAD SAFETY
+region_failures = {}  # url -> (failure_count, next_retry_time)
+region_failures_lock = threading.Lock()
 
 # Caching TTL
 last_known_open_times = TTLCache(maxsize=1000, ttl=10800)  # 3 hours TTL for bridges
@@ -60,7 +77,7 @@ def parse_date(date_str):
         longer = False
         return closure_time, longer
     except ValueError:
-        print(f"Invalid date string: {date_str}")
+        logger.warning(f"Invalid date string: {date_str}")
         return None, False
     
 def parse_old_style(soup):
@@ -185,13 +202,13 @@ def scrape_bridge_data(url, timeout=10, retries=3):
             break
         except (requests.RequestException, requests.Timeout) as e:
             if attempt == retries - 1:
-                print(f"ERROR: Failed to scrape {url} after {retries} attempts: {e}")
+                logger.error(f"✗ {url}: {str(e)[:50]}...")
                 return []
-            print(f"WARNING: Attempt {attempt + 1} failed for {url}: {e}. Retrying...")
+            logger.warning(f"Retry {attempt + 1}/{retries} for {url}")
             continue
     
     if soup is None:
-        print(f"ERROR: All attempts failed for {url}")
+        logger.error(f"✗ All attempts failed for {url}")
         return []
     
     if soup.select_one('div.new-bridgestatus-container'):
@@ -223,7 +240,8 @@ def interpret_bridge_status(bridge_data):
             status = "Closing soon"
         else:
             status = "Open"
-    else:
+    elif "unavailable" in raw_status:
+        # Handle specific unavailable statuses
         if "lowering" in raw_status:
             status = "Opening"
         elif "raising" in raw_status:
@@ -232,6 +250,9 @@ def interpret_bridge_status(bridge_data):
             status = "Construction"
         else:
             status = "Closed"
+    else:
+        # No "available" or "unavailable" in status - this is garbage data
+        status = "Unknown"
 
     return {
         "name": name,
@@ -372,11 +393,15 @@ def update_firestore(bridges, region, shortform):
             }
         }
 
-        if doc_id not in last_known_state:
+        # Check if we need to fetch existing data - THREAD SAFE
+        with last_known_state_lock:
+            doc_id_not_cached = doc_id not in last_known_state
+        
+        if doc_id_not_cached:
             try:
                 existing_doc = doc_ref.get()
             except Exception as e:
-                print(f"ERROR: Failed to read document {doc_id}: {e}")
+                logger.error(f"✗ Failed to read {doc_id}: {str(e)[:50]}...")
                 existing_doc = None
             
             if existing_doc and existing_doc.exists:
@@ -391,9 +416,15 @@ def update_firestore(bridges, region, shortform):
                 new_data['live']['last_updated'] = current_time
             update_needed = True
             batch.set(doc_ref, new_data)
-            last_known_state[doc_id] = copy.deepcopy(new_data)
+            
+            # Update cache - THREAD SAFE
+            with last_known_state_lock:
+                last_known_state[doc_id] = copy.deepcopy(new_data)
         else:
-            old_data = copy.deepcopy(last_known_state[doc_id])
+            # Get old data - THREAD SAFE
+            with last_known_state_lock:
+                old_data = copy.deepcopy(last_known_state[doc_id])
+            
             old_live = {k: v for k, v in old_data['live'].items() if k != 'last_updated'}
             new_live = {k: v for k, v in new_data['live'].items() if k != 'last_updated'}
 
@@ -407,7 +438,9 @@ def update_firestore(bridges, region, shortform):
                     if new_data['live']['available']:
                         last_known_open_times[doc_id] = current_time
                 
-                last_known_state[doc_id]['live'] = copy.deepcopy(new_data['live'])
+                # Update cache - THREAD SAFE
+                with last_known_state_lock:
+                    last_known_state[doc_id]['live'] = copy.deepcopy(new_data['live'])
             else:
                 new_data['live']['last_updated'] = old_data['live']['last_updated']
 
@@ -415,27 +448,71 @@ def update_firestore(bridges, region, shortform):
         try:
             batch.commit()
         except Exception as e:
-            print(f"ERROR: Failed to commit Firebase batch for {region}: {e}")
+            logger.error(f"✗ Firebase batch failed for {region}: {str(e)[:50]}...")
             raise
 
 # Can trigger externally as well:
 def process_single_region(url_info_pair):
-    """Process a single region's bridges with error handling."""
+    """Process a single region with smart backoff that never gives up"""
     url, info = url_info_pair
+    region = info['region']
+    
+    # Check if we're still in backoff period - THREAD SAFE
+    with region_failures_lock:
+        if url in region_failures:
+            failure_count, next_retry = region_failures[url]
+            if datetime.now() < next_retry:
+                wait_seconds = (next_retry - datetime.now()).total_seconds()
+                logger.info(f"⏳ {region}: Still waiting {wait_seconds:.0f}s (attempt #{failure_count})")
+                return (False, 0)
+    
     try:
         bridges = scrape_bridge_data(url)
-        if bridges:  # Only update if we got data
+        if bridges:
             update_firestore(bridges, info['region'], info['shortform'])
-            return f"SUCCESS: {info['region']} ({len(bridges)} bridges)"
+            
+            # Success - reset failure count - THREAD SAFE
+            with region_failures_lock:
+                if url in region_failures:
+                    failure_count = region_failures[url][0]
+                    logger.info(f"✓ {region}: {len(bridges)} (recovered after {failure_count} failures)")
+                    del region_failures[url]  # Clear failures
+                else:
+                    logger.info(f"✓ {region}: {len(bridges)}")
+            
+            return (True, len(bridges))
         else:
-            return f"WARNING: No bridge data returned for {info['region']}"
+            # Empty response counts as failure
+            handle_region_failure(url, region, "No data")
+            return (False, 0)
+            
     except Exception as e:
-        return f"ERROR: Failed to process {info['region']}: {e}"
+        handle_region_failure(url, region, str(e)[:30] + "...")
+        return (False, 0)
+
+def handle_region_failure(url, region, error_msg):
+    """Update failure tracking with next retry time - THREAD SAFE"""
+    with region_failures_lock:
+        failure_count = region_failures.get(url, (0, None))[0] + 1
+        
+        # Calculate next retry time (exponential backoff, max 5 minutes)
+        wait_seconds = min(2 ** failure_count, 300)
+        next_retry = datetime.now() + timedelta(seconds=wait_seconds)
+        
+        region_failures[url] = (failure_count, next_retry)
+    
+    if failure_count == 1:
+        logger.error(f"✗ {region}: {error_msg}")
+    else:
+        logger.error(f"✗ {region}: {error_msg} (attempt #{failure_count}, retry in {wait_seconds}s)")
 
 def scrape_and_update():
     """Main scraping function with concurrent execution and error handling."""
     start_time = datetime.now(TIMEZONE)
-    print(f"Starting scrape_and_update at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info("Scraping...")
+    
+    success_count = 0
+    fail_count = 0
     
     # Use ThreadPoolExecutor for concurrent scraping (I/O bound operations)
     with concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="BridgeScraper") as executor:
@@ -449,14 +526,18 @@ def scrape_and_update():
         for future in concurrent.futures.as_completed(future_to_region, timeout=25):
             region = future_to_region[future]
             try:
-                result = future.result()
-                print(result)
+                success, bridge_count = future.result()
+                if success:
+                    success_count += 1
+                else:
+                    fail_count += 1
             except Exception as e:
-                print(f"ERROR: Unexpected error processing {region}: {e}")
+                logger.error(f"✗ {region}: Unexpected error")
+                fail_count += 1
     
     end_time = datetime.now(TIMEZONE)
     duration = (end_time - start_time).total_seconds()
-    print(f"Completed scrape_and_update in {duration:.2f} seconds")
+    logger.info(f"Done in {duration:.1f}s - All: {success_count} ✓, {fail_count} ✗")
 
 if __name__ == '__main__':
     scrape_and_update()

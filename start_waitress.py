@@ -1,7 +1,7 @@
 #start_waitress.py
 from flask import Flask
 from apscheduler.schedulers.background import BackgroundScheduler
-from scraper import scrape_and_update, daily_statistics_update, TIMEZONE
+from scraper import scrape_and_update, daily_statistics_update, TIMEZONE, logger
 from datetime import datetime
 import waitress
 
@@ -11,9 +11,8 @@ scheduler = BackgroundScheduler(timezone=TIMEZONE)
 def scrape_and_update_task():
     try:
         scrape_and_update()
-        print(f'Scrape and update completed successfully at {datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")}')
     except Exception as e:
-        print(f'ERROR: Scrape and update failed at {datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")}: {e}')
+        logger.error(f'Scheduler task failed: {str(e)[:50]}...')
         raise  # Re-raise to allow APScheduler to handle the error
 
 def start_scheduler():

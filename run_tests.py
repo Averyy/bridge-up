@@ -42,7 +42,11 @@ def main():
         ("tests/test_parsers.py", "Parser Tests (HTML parsing logic)"),
         ("tests/test_statistics.py", "Statistics Tests (prediction calculations)"),
         ("tests/test_status_edge_cases.py", "Status Edge Cases (realistic scenarios)"),
-        ("tests/test_configuration.py", "Configuration Tests (deployment safety)")
+        ("tests/test_configuration.py", "Configuration Tests (deployment safety)"),
+        ("tests/test_thread_safety.py", "Thread Safety Tests (concurrent access)"),
+        ("tests/test_backoff.py", "Backoff Tests (exponential retry logic)"),
+        ("tests/test_network_backoff.py", "Network Backoff Tests (failure handling)"),
+        ("tests/test_logging.py", "Logging Tests (output format)")
     ]
     
     passed = 0

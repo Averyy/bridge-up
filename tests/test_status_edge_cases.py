@@ -130,6 +130,26 @@ class TestStatusEdgeCases(unittest.TestCase):
         result = interpret_bridge_status(bridge_data)
         
         self.assertFalse(result['available'])
+    
+    def test_garbage_data_returns_unknown_not_closed(self):
+        """Test that unrecognized data returns Unknown, not Closed"""
+        garbage_inputs = [
+            "Server Error 500",
+            "Maintenance Mode", 
+            "<!DOCTYPE html>",
+            "Random garbage text",
+            ""
+        ]
+        
+        for garbage in garbage_inputs:
+            bridge_data = {
+                'name': 'Test Bridge',
+                'raw_status': garbage,
+                'upcoming_closures': []
+            }
+            result = interpret_bridge_status(bridge_data)
+            self.assertEqual(result['status'], 'Unknown', 
+                            f"Garbage '{garbage}' should map to Unknown, not {result['status']}")
 
 if __name__ == '__main__':
     print("Running Bridge Up Status Edge Case Tests...")

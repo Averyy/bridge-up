@@ -22,6 +22,7 @@ COPY . .
 # Create directory for persistent data if needed
 RUN mkdir -p /app/data
 ENV DOCKER_ENV=true
+ENV PYTHONUNBUFFERED=1
 
 # Expose port 5000
 EXPOSE 5000

@@ -1,20 +1,17 @@
 #start_flask.py
 from flask import Flask
 from apscheduler.schedulers.background import BackgroundScheduler
-from scraper import scrape_and_update, daily_statistics_update, TIMEZONE
+from scraper import scrape_and_update, daily_statistics_update, TIMEZONE, logger
 from datetime import datetime
 
 app = Flask(__name__)
 scheduler = BackgroundScheduler(timezone=TIMEZONE)
 
 def scrape_and_update_task():
-    now = datetime.now(TIMEZONE)
-    print(f'Scrape and update started at {now.strftime("%I:%M:%S%p").lower()}')
     try:
         scrape_and_update()
-        print(f'Scrape and update completed successfully at {datetime.now(TIMEZONE).strftime("%I:%M:%S%p").lower()}')
     except Exception as e:
-        print(f'ERROR: Scrape and update failed at {datetime.now(TIMEZONE).strftime("%I:%M:%S%p").lower()}: {e}')
+        logger.error(f'Scheduler task failed: {str(e)[:50]}...')
         raise  # Re-raise to allow APScheduler to handle the error
 
 def start_scheduler():
@@ -33,7 +30,7 @@ def start_scheduler():
         scheduler.add_job(daily_statistics_update, 'cron', hour=4, minute=0)
         
         scheduler.start()
-        print(f'Scheduler started at {datetime.now(TIMEZONE).strftime("%I:%M:%S%p").lower()}')
+        logger.info('Scheduler started')
         # Run immediately upon starting
         scrape_and_update_task()
 

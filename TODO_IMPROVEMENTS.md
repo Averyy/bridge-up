@@ -3,48 +3,31 @@
 ## Overview
 Simple, pragmatic improvements for production reliability. Total implementation time: ~1 hour.
 
-### ⚠️ CRITICAL DISCOVERY: Thread Safety Issues
-Your code uses `ThreadPoolExecutor(max_workers=4)` but has **NO thread safety** on shared state:
-- **Existing bug**: `last_known_state` dictionary can corrupt/crash under concurrent access
-- **New features**: Must add proper locking to avoid same issues
-- **Solution**: Use `threading.Lock()` for all shared state access
-
-## 0. Fix Docker Logs Not Updating ⚠️ URGENT (2 minutes)
+## 1. Fix Docker Logs Not Updating ⚠️
 
 ### Why:
 - Python buffers output in Docker containers
 - Logs get "stuck" and don't show in `docker logs`
 - Makes debugging production issues impossible
 
-### Tasks:
-- [ ] Add `-u` flag to Python in Dockerfile OR
-- [ ] Set PYTHONUNBUFFERED=1 environment variable OR
-- [ ] Force flush after each print
+### Task:
+- [ ] Set PYTHONUNBUFFERED=1 environment variable in Dockerfile
 
-### Implementation (Choose ONE):
+### Implementation:
 
-**Option 1 - Dockerfile (Recommended):**
+**Add to Dockerfile:**
 ```dockerfile
-# In your Dockerfile, change:
-CMD ["python", "start_waitress.py"]
-# To:
-CMD ["python", "-u", "start_waitress.py"]
-```
-
-**Option 2 - Environment Variable:**
-```dockerfile
-# Add to Dockerfile:
+# Add this line anywhere in your Dockerfile (typically near the top)
 ENV PYTHONUNBUFFERED=1
 ```
 
-**Option 3 - Force Flush (if not using Docker):**
-```python
-# After each print statement add:
-print("Something happened")
-sys.stdout.flush()  # Forces output immediately
-```
+**Why this approach:**
+- Standard Docker + Python best practice
+- Works for all Python processes in the container
+- No deployment configuration changes needed
+- Just rebuild and redeploy the image
 
-## 1. Replace print() with Loguru + Cleaner Logs ✅ High Priority (30 minutes)
+## 2. Replace print() with Loguru + Cleaner Logs
 
 ### Why:
 - See what's happening in production via `docker logs`
@@ -70,7 +53,9 @@ logger.remove()  # Remove default handler
 logger.add(
     sys.stderr,
     format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
-    level="INFO"
+    level="INFO",
+    enqueue=False,    # Ensures immediate output in Docker logs
+    colorize=False    # Disable colors for Docker (containers don't support ANSI colors)
 )
 
 # BEFORE (verbose):
@@ -102,119 +87,7 @@ logger.warning(f"⚠ {region}: No data")
 # - Individual "SUCCESS" prefix (use ✓ instead)
 ```
 
-### Clean Log Format:
-```python
-# Production (JSON for parsing):
-if os.getenv('JSON_LOGS', '').lower() == 'true':
-    logger.add(sys.stderr, serialize=True, level="INFO")
-else:
-    # Development (colored and clean):
-    logger.add(
-        sys.stderr,
-        format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
-        level="INFO"
-    )
-```
-
-## 2. Add Health Check with Region Status ✅ High Priority (10 minutes)
-
-### Why:
-- Monitor if your backend is alive
-- See which specific regions are working/failing
-- Required for uptime monitoring services
-
-### Tasks:
-- [ ] Add global variables to track last scrape time and region status
-- [ ] Update region status after each scrape attempt
-- [ ] Add /health endpoint to app.py
-- [ ] Return detailed status for each region
-
-### Implementation:
-```python
-# app.py
-from flask import Flask, jsonify
-from datetime import datetime
-import threading
-
-app = Flask(__name__)
-
-# Add these globals - WITH THREAD SAFETY
-last_scrape_time = None
-last_scrape_time_lock = threading.Lock()
-
-region_status = {}  # region -> {'status': 'ok'/'failing', 'last_success': timestamp, 'failure_count': n}
-region_status_lock = threading.Lock()
-
-@app.route('/')
-def home():
-    return "Bridge Up Backend is running!", 200
-
-@app.route('/health')
-def health_check():
-    # Create snapshot of current state to minimize lock time
-    with region_status_lock:
-        status_snapshot = dict(region_status)
-    
-    with last_scrape_time_lock:
-        scrape_time_snapshot = last_scrape_time
-    
-    if not status_snapshot:
-        return jsonify({
-            "status": "starting",
-            "message": "No data yet - backend is starting up"
-        })
-    
-    # Process snapshot outside of locks
-    healthy_regions = sum(1 for r in status_snapshot.values() if r['status'] == 'ok')
-    total_regions = len(status_snapshot)
-    
-    # Simple status determination
-    if healthy_regions == total_regions:
-        overall_status = "healthy"
-    elif healthy_regions == 0:
-        overall_status = "down"
-    else:
-        overall_status = "degraded"
-    
-    return jsonify({
-        "status": overall_status,
-        "healthy_regions": f"{healthy_regions}/{total_regions}",
-        "last_scrape": scrape_time_snapshot.isoformat() if scrape_time_snapshot else None,
-        "regions": {
-            name: {
-                "status": info['status'],
-                "last_success": info['last_success'].isoformat() if info['last_success'] else None,
-                "failure_count": info['failure_count']
-            }
-            for name, info in status_snapshot.items()
-        }
-    })
-
-# In scraper.py, add this function:
-def update_region_status(region, success, failure_count=0):
-    """Update health check status for a region - THREAD SAFE"""
-    from app import region_status, region_status_lock  # Import from app.py
-    
-    with region_status_lock:
-        if region not in region_status:
-            region_status[region] = {
-                'status': 'unknown',
-                'last_success': None,
-                'failure_count': 0
-            }
-        
-        if success:
-            region_status[region] = {
-                'status': 'ok',
-                'last_success': datetime.now(TIMEZONE),
-                'failure_count': 0  # Reset on success!
-            }
-        else:
-            region_status[region]['status'] = 'failing'
-            region_status[region]['failure_count'] = failure_count
-```
-
-## 3. Add Smart Backoff That Never Gives Up ✅ High Priority (20 minutes)
+## 3. Add Smart Backoff That Never Gives Up
 
 ### Why:
 - Prevent hammering sites that are down
@@ -261,7 +134,6 @@ def process_single_region(url_info_pair):
             if datetime.now() < next_retry:
                 wait_seconds = (next_retry - datetime.now()).total_seconds()
                 logger.info(f"⏳ {region}: Still waiting {wait_seconds:.0f}s (attempt #{failure_count})")
-                update_region_status(region, False, failure_count)  # Update health check
                 return f"WAITING: {region}"
     
     try:
@@ -278,7 +150,6 @@ def process_single_region(url_info_pair):
                 else:
                     logger.info(f"✓ {region}: {len(bridges)}")
             
-            update_region_status(region, True)  # Update health check - resets failure count!
             return f"SUCCESS: {region}"
         else:
             # Empty response counts as failure
@@ -304,8 +175,6 @@ def handle_region_failure(url, region, error_msg):
         logger.error(f"✗ {region}: {error_msg}")
     else:
         logger.error(f"✗ {region}: {error_msg} (attempt #{failure_count}, retry in {wait_seconds}s)")
-    
-    update_region_status(region, False, failure_count)  # Update health check
 ```
 
 ## Example of How It Works
@@ -334,39 +203,6 @@ def handle_region_failure(url, region, error_msg):
 10:48:30 | INFO     | ✓ Port Colborne: 3
 ```
 
-### Health Check During Outage:
-```json
-{
-  "status": "degraded",
-  "healthy_regions": "3/4",
-  "last_scrape": "2025-06-02T10:45:00.123456",
-  "regions": {
-    "Port Colborne": {
-      "status": "failing",
-      "last_success": "2025-06-02T09:22:00.123456",
-      "failure_count": 45
-    },
-    // ... other regions with status "ok"
-  }
-}
-```
-
-### After Recovery:
-```json
-{
-  "status": "healthy",
-  "healthy_regions": "4/4",
-  "last_scrape": "2025-06-02T10:48:00.123456",
-  "regions": {
-    "Port Colborne": {
-      "status": "ok",
-      "last_success": "2025-06-02T10:48:00.123456",
-      "failure_count": 0  // Reset!
-    },
-    // ... other regions
-  }
-}
-```
 
 ## 4. Fix Existing Thread Safety Issue in last_known_state ⚠️ CRITICAL (10 minutes)
 
@@ -424,41 +260,103 @@ with last_known_state_lock:
 - [ ] Run in Docker and check `docker logs` updates in real-time
 - [ ] Verify errors are logged properly
 
-### 2. Test Health Check
-- [ ] Hit http://localhost:5000/health
-- [ ] Check it shows region-specific status
-- [ ] Verify failure counts increment and reset properly
-
-### 3. Test Backoff
+### 2. Test Backoff
 - [ ] Temporarily break one URL in config.py
 - [ ] Watch logs to see exponential backoff (2s, 4s, 8s...)
 - [ ] Verify it caps at 5 minutes
 - [ ] Let it run for 30+ minutes to ensure it never gives up
 - [ ] Fix URL and confirm recovery message + failure count reset
 
+### 3. Add Critical Unit Tests (REQUIRED before production)
+
+#### A. Test Status Bug Fix (5 minutes)
+Add to `tests/test_status_edge_cases.py`:
+```python
+def test_garbage_data_returns_unknown_not_closed(self):
+    """Test that unrecognized data returns Unknown, not Closed"""
+    garbage_inputs = [
+        "Server Error 500",
+        "Maintenance Mode", 
+        "<!DOCTYPE html>",
+        "Random garbage text",
+        ""
+    ]
+    
+    for garbage in garbage_inputs:
+        bridge_data = {
+            'name': 'Test Bridge',
+            'raw_status': garbage,
+            'upcoming_closures': []
+        }
+        result = interpret_bridge_status(bridge_data)
+        self.assertEqual(result['status'], 'Unknown', 
+                        f"Garbage '{garbage}' should map to Unknown, not {result['status']}")
+```
+
+#### B. Test Thread Safety (10 minutes)
+Create new file `tests/test_thread_safety.py`:
+```python
+import threading
+import time
+import unittest
+from scraper import last_known_state, last_known_state_lock
+
+class TestThreadSafety(unittest.TestCase):
+    def test_concurrent_state_updates(self):
+        """Test that concurrent updates don't cause race conditions"""
+        # Clear state
+        last_known_state.clear()
+        
+        def update_state(thread_id):
+            for i in range(100):
+                with last_known_state_lock:
+                    last_known_state[f"bridge_{thread_id}_{i}"] = {
+                        'status': 'Open',
+                        'timestamp': time.time()
+                    }
+                time.sleep(0.001)
+        
+        # Create 4 threads (matching max_workers=4)
+        threads = []
+        for i in range(4):
+            t = threading.Thread(target=update_state, args=(i,))
+            threads.append(t)
+            t.start()
+        
+        # Wait for all threads
+        for t in threads:
+            t.join()
+        
+        # Verify no data corruption
+        self.assertEqual(len(last_known_state), 400)  # 4 threads * 100 updates
+        
+        # Verify all keys exist
+        for i in range(4):
+            for j in range(100):
+                self.assertIn(f"bridge_{i}_{j}", last_known_state)
+```
+
+### 4. Manual Thread Safety Verification
+- [ ] Start the app
+- [ ] Run 4 concurrent curl requests: `for i in {1..4}; do curl http://localhost:5000/health & done`
+- [ ] Verify no crashes or errors in logs
+- [ ] Check that all requests complete successfully
+
 ## Success Criteria
 
 - [ ] Docker logs update in real-time (no buffering)
 - [ ] Logs are 50% shorter and easier to scan
 - [ ] Can identify issues at a glance (✓ ✗ ⚠ ⏳)
-- [ ] Health check shows per-region status
 - [ ] Failed regions don't block working ones
 - [ ] Backoff never gives up, just waits longer
 - [ ] Failure counts reset on successful scrape
 - [ ] **NO RACE CONDITIONS** - All shared state properly locked
 - [ ] Thread-safe implementation verified with concurrent testing
-- [ ] Total implementation time < 1 hour (including thread safety fixes)
+- [ ] **All tests pass**: `python run_tests.py` shows green (including new tests)
+- [ ] **Status bug test passes**: Garbage data returns "Unknown" not "Closed"
+- [ ] Total implementation time < 1.5 hours (including tests)
 
-## Future Improvements (When You Need Them)
-
-- Structured JSON logging (when you add log aggregation)
-- Detailed metrics (when you have performance issues)  
-- Request tracing (when you have complex debugging needs)
-- Multiple health check endpoints (when you have microservices)
-
-But for now, **ship it!** 🚀
-
-## 5. Fix Status Mismatch Bug - Garbage Data Shows as "Closed" ⚠️ CRITICAL (5 minutes)
+## 5. Fix Status Mismatch Bug - Garbage Data Shows as "Closed"
 
 ### Bug Summary
 When the website returns unrecognized/garbage data, the backend defaults to "Closed" instead of "Unknown", causing false closure predictions in the iOS app.

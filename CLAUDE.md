@@ -5,17 +5,9 @@ This is the Python backend for Bridge Up - a bridge monitoring system that scrap
 
 **Key Context**: This backend is the **authoritative data source** for the iOS app. It scrapes, processes, and stores all bridge status information.
 
-## Recent Critical Fix (June 2025)
-**Solved**: APScheduler stalling issue ("maximum number of running instances reached")
-- Added request timeouts (10s) + retry logic (3 attempts)
-- Configured APScheduler with `max_instances=3`, `coalesce=True`
-- Implemented concurrent scraping → 50x performance improvement
-- **Always maintain these fixes when modifying scraping code**
-
 ## Critical Rules - DO NOT VIOLATE
 
 - **ALWAYS run tests before committing or deploying** - use `python run_tests.py`
-
 - **NEVER create mock data or simplified components** unless explicitly told to do so
 - **NEVER replace existing complex components with simplified versions** - always fix the actual problem
 - **ALWAYS work with the existing codebase** - do not create new simplified alternatives
@@ -44,11 +36,12 @@ St. Lawrence Seaway Websites → Python Scraper → Data Processing → Firebase
 
 - Use Python 3.9+ with type hints for all functions
 - Follow PEP 8 style guidelines with proper docstrings
-- Use proper logging with appropriate log levels (not print statements)
+- Use Loguru for logging (already configured in scraper.py)
 - Always validate scraped data before processing
 - Implement proper error handling for network requests
 - **CRITICAL**: Always use timeouts on requests (10s default)
 - **CRITICAL**: Use ThreadPoolExecutor for concurrent scraping (not asyncio)
+- **CRITICAL**: Protect shared state with threading.Lock() when using concurrent execution
 - Optimize for reliability and cost efficiency
 - Design for Docker deployment
 
@@ -75,17 +68,14 @@ St. Lawrence Seaway Websites → Python Scraper → Data Processing → Firebase
 The status mapping is implemented in `interpret_bridge_status()` function in `scraper.py`:
 
 ```python
-# Status normalization logic (lines 202-242):
-# - "Data unavailable" → "Unknown" (website service down)
+# Status normalization logic:
 # - "Available" → "Open"
 # - "Available (raising soon)" → "Closing soon"
 # - "Unavailable" → "Closed"
 # - "Unavailable (lowering)" → "Opening"
 # - "Unavailable (raising)" → "Closing"
 # - "Unavailable (work in progress)" → "Construction"
-# 
-# BUG: When website returns garbage (no "available"/"unavailable" words),
-# it defaults to "Closed" instead of "Unknown"
+# - All other statuses → "Unknown"
 
 # Final statuses written to Firebase:
 # "Open", "Closed", "Closing soon", "Opening", "Construction", "Unknown"
@@ -185,7 +175,7 @@ Implemented tests cover:
 - ✅ Status interpretation (edge cases)
 - ✅ Configuration validation
 
-See `TESTING.md` for details. Tests take <1 second to run - no excuses!
+See `TESTING.md` for details. 
 
 ## Error Handling Standards
 
@@ -236,3 +226,19 @@ While focusing on backend work, be aware that:
 - [ ] Statistical calculations verified
 - [ ] Scraping ethics respected (rate limits, etc.)
 - [ ] Docker deployment considerations
+
+## Recent Critical Fixes (June 2025)
+
+### 1. APScheduler Stalling Issue
+**Solved**: "maximum number of running instances reached"
+- Added request timeouts (10s) + retry logic (3 attempts)
+- Configured APScheduler with `max_instances=3`, `coalesce=True`
+- Implemented concurrent scraping → 50x performance improvement
+
+### 2. Production Reliability Improvements
+**Implemented**: Thread safety, smart backoff, and status bug fix
+- Added thread locks for `last_known_state` dictionary (prevents race conditions)
+- Implemented exponential backoff for failed regions (2s → 300s cap, never gives up)
+- Fixed status bug: garbage data now returns "Unknown" instead of "Closed"
+- Replaced print() with Loguru for structured logging
+- **Always maintain these fixes when modifying scraping code**

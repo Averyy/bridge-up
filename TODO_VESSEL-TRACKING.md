@@ -1,19 +1,233 @@
 # TODO: Vessel Tracking Implementation
 
 ## Overview
-Implement real-time vessel tracking for the St. Lawrence Seaway using AIS Dispatcher data. Display vessels as boat icons on the iOS app map around the canal area.
+Implement real-time vessel tracking for the St. Lawrence Seaway using a **hybrid approach**:
+- **Phase 1**: AISHub API for Montreal region (proof of concept, remote coverage)
+- **Phase 2**: UDP AIS Dispatcher for Welland Canal (leveraging local AIS infrastructure)
+
+This hybrid approach allows immediate implementation for remote regions while utilizing existing local AIS receivers for better real-time data where available.
 
 ## Current Setup
-- **AIS Dispatcher** running locally with web interface at `http://localhost:8080`
-- Receives AIS data from local AIS receiver
-- Web interface credentials: admin/admin
-- Can output data via TCP Server, UDP, or act as TCP Client
-- Performs downsampling and duplicate removal
-- Linux version supports unlimited UDP destinations
+- **Local AIS Coverage** (St. Catharines/Port Colborne):
+  - AIS Dispatcher running locally with web interface at `http://localhost:8080`
+  - Receives AIS data from local AIS receiver
+  - Web interface credentials: admin/admin
+  - Can output data via TCP Server, UDP, or act as TCP Client
+  - Performs downsampling and duplicate removal
+  
+- **Remote Coverage** (Montreal):
+  - AISHub API access available
+  - Rate limited to 1 request/minute
+  - Provides coverage for areas without local AIS receivers
 
-## Requirements
+## Implementation Strategy
 
-### 1. Connect to AIS Dispatcher
+### Region-Specific Data Sources:
+- **Welland Canal** (St. Catharines + Port Colborne): UDP from local AIS Dispatcher
+- **Montreal** (South Shore + Salaberry/Beauharnois): AISHub API
+
+This allows leveraging local infrastructure where available while using API for remote coverage.
+
+---
+
+## Phase 1: AISHub API Implementation (Montreal Region)
+
+### Why Start with AISHub API?
+- Immediate proof of concept without infrastructure setup
+- Test vessel tracking features and Firebase integration
+- Provides coverage for Montreal where no local AIS receiver exists
+- Simpler implementation to validate the concept
+
+### API Configuration
+
+**Base URL**: `https://data.aishub.net/ws.php`
+
+**Authentication**:
+```python
+# Store API key as environment variable (DO NOT commit to git)
+# Add to .env file or set in environment:
+# AISHUB_API_KEY=AH_3551_38EC19B6
+
+import os
+
+AISHUB_CONFIG = {
+    'apikey': os.environ.get('AISHUB_API_KEY'),  # Required for authentication
+    'format': 1,  # Human-readable format
+    'output': 'json',  # Response format
+}
+```
+
+**Station Monitoring**:
+Monitor your AIS station coverage and statistics at: https://www.aishub.net/stations/3551
+
+### Geographic Regions for API Queries
+
+```python
+# Only Montreal regions use AISHub API
+AISHUB_REGIONS = {
+    'montreal_south_shore': {
+        'name': 'Montreal South Shore',
+        'bounds': {
+            'latmin': 45.358,
+            'latmax': 45.546,
+            'lonmin': -73.568,
+            'lonmax': -73.467
+        },
+        'bridges': ['Victoria Bridge', 'Sainte-Catherine']
+    },
+    'salaberry_beauharnois': {
+        'name': 'Salaberry/Beauharnois',
+        'bounds': {
+            'latmin': 45.176,
+            'latmax': 45.283,
+            'lonmin': -74.165,
+            'lonmax': -73.953
+        },
+        'bridges': ['Larocque', 'Valleyfield']
+    }
+}
+```
+
+### AISHub API Documentation
+
+**Official API Documentation**: https://www.aishub.net/api
+
+**API Endpoints**:
+- Vessel Data: `https://data.aishub.net/ws.php`
+- Station Data: `https://data.aishub.net/stations.php`
+
+**Example API Calls**:
+```bash
+# All vessels in Montreal South Shore area
+https://data.aishub.net/ws.php?apikey=YOUR_API_KEY&format=1&output=json&latmin=45.358&latmax=45.546&lonmin=-73.568&lonmax=-73.467
+
+# Specific vessel by MMSI
+https://data.aishub.net/ws.php?apikey=YOUR_API_KEY&format=1&output=json&mmsi=316001234
+
+# With compression (BZIP2)
+https://data.aishub.net/ws.php?apikey=YOUR_API_KEY&format=1&output=json&compress=3&latmin=45.358&latmax=45.546&lonmin=-73.568&lonmax=-73.467
+```
+
+**Response Format Example (JSON)**:
+```json
+{
+  "MMSI": 316001234,
+  "TIME": "2024-06-03 12:34:56 GMT",
+  "LONGITUDE": -73.512,
+  "LATITUDE": 45.421,
+  "COG": 225.5,
+  "SOG": 12.5,
+  "HEADING": 223,
+  "ROT": 0,
+  "NAVSTAT": 0,
+  "IMO": 9123456,
+  "NAME": "FEDERAL YUKINA",
+  "CALLSIGN": "CGAB",
+  "TYPE": 70,
+  "A": 180,
+  "B": 20,
+  "C": 15,
+  "D": 15,
+  "DRAUGHT": 8.5,
+  "DEST": "MONTREAL",
+  "ETA": "06-03 18:00"
+}
+```
+
+**API Access Requirements**:
+1. Must be an AISHub member with valid API key
+2. API key format: `AH_XXXX_XXXXXXXX`
+3. Rate limit: Maximum 1 request per minute
+4. Returns empty response if accessed too frequently
+5. Store API key as environment variable for security
+
+### AISHub Data Processing
+
+```python
+import requests
+from typing import Dict, List
+import logging
+
+logger = logging.getLogger(__name__)
+
+class AISHubTracker:
+    def __init__(self, api_key: str = None):
+        self.api_key = api_key or os.environ.get('AISHUB_API_KEY')
+        if not self.api_key:
+            raise ValueError("AISHub API key not provided. Set AISHUB_API_KEY environment variable.")
+        self.api_url = 'https://data.aishub.net/ws.php'
+        
+    def fetch_vessels_for_region(self, region_id: str, bounds: Dict) -> List[Dict]:
+        """Fetch vessels from AISHub API for a specific region."""
+        params = {
+            'apikey': self.api_key,
+            'format': 1,
+            'output': 'json',
+            'latmin': bounds['latmin'],
+            'latmax': bounds['latmax'],
+            'lonmin': bounds['lonmin'],
+            'lonmax': bounds['lonmax']
+        }
+        
+        try:
+            response = requests.get(self.api_url, params=params, timeout=10)
+            if response.status_code == 200:
+                vessels = response.json()
+                # Tag vessels with their data source
+                for vessel in vessels:
+                    vessel['data_source'] = 'aishub_api'
+                    vessel['region'] = region_id
+                return vessels
+            else:
+                logger.error(f"AISHub API error: {response.status_code}")
+                return []
+        except Exception as e:
+            logger.error(f"Failed to fetch vessels for {region_id}: {e}")
+            return []
+    
+    def process_aishub_vessel(self, vessel_data: Dict) -> Dict:
+        """Convert AISHub format to our Firebase format."""
+        return {
+            'mmsi': str(vessel_data['MMSI']),
+            'name': vessel_data.get('NAME', 'Unknown').strip(),
+            'coordinates': {
+                'lat': float(vessel_data['LATITUDE']),
+                'lon': float(vessel_data['LONGITUDE'])
+            },
+            'course': float(vessel_data.get('COG', 0)),
+            'speed': float(vessel_data.get('SOG', 0)),
+            'heading': int(vessel_data.get('HEADING', 511)),  # 511 = not available
+            'moving': float(vessel_data.get('SOG', 0)) > 0.5,
+            'category': self._get_vessel_category(int(vessel_data.get('TYPE', 0))),
+            'destination': vessel_data.get('DEST', '').strip(),
+            'flag': self._get_country_flag(str(vessel_data['MMSI'])),
+            'region': vessel_data['region'],
+            'data_source': vessel_data['data_source'],
+            'last_updated': firestore.SERVER_TIMESTAMP
+        }
+```
+
+### API Rate Limiting
+
+**CRITICAL**: AISHub limits API access to **once per minute**. More frequent access returns empty results.
+
+```python
+# Schedule AISHub updates every 60 seconds
+scheduler.add_job(
+    fetch_aishub_vessels,
+    'interval',
+    seconds=60,
+    id='aishub_vessels',
+    max_instances=1,
+    coalesce=True
+)
+```
+
+---
+
+## Phase 2: UDP AIS Dispatcher Implementation (Welland Canal)
+
+### 1. Connect to Local AIS Dispatcher
 
 **Architecture**: UDP Push from AIS Dispatcher to backend domain
 
@@ -75,12 +289,12 @@ for port, config in AIS_SOURCES.items():
     thread.start()
 ```
 
-### 2. Geographic Filtering
+### 2. Geographic Region for UDP Coverage
 
-**Vessel Tracking Regions**:
+**UDP Coverage Region** (only Welland Canal uses UDP):
 
 ```python
-VESSEL_TRACKING_REGIONS = {
+UDP_REGIONS = {
     'welland_canal': {
         'name': 'Welland Canal',
         'description': 'Complete canal from Lake Ontario to Lake Erie',
@@ -91,35 +305,15 @@ VESSEL_TRACKING_REGIONS = {
             'max_lon': -79.137   # Eastern boundary
         },
         'bridges': 8  # St. Catharines (5) + Port Colborne (3)
-    },
-    'montreal_south_shore': {
-        'name': 'Montreal South Shore',
-        'description': 'Victoria Bridges and Sainte-Catherine area',
-        'bounds': {
-            'min_lat': 45.358,
-            'max_lat': 45.546,
-            'min_lon': -73.568,
-            'max_lon': -73.467
-        },
-        'bridges': 3
-    },
-    'salaberry_beauharnois': {
-        'name': 'Salaberry/Beauharnois',
-        'description': 'Western Montreal area bridges',
-        'bounds': {
-            'min_lat': 45.176,
-            'max_lat': 45.283,
-            'min_lon': -74.165,
-            'max_lon': -73.953
-        },
-        'bridges': 2
     }
+    # Montreal regions use AISHub API instead of UDP
 }
 ```
 
-**Implementation Priority**:
-1. **Phase 1**: Welland Canal (single region covering entire canal)
-2. **Phase 2**: Montreal areas (two separate regions)
+**UDP Implementation Details**:
+- Single UDP port (9999) for Welland Canal AIS data
+- Real-time updates with configurable downsampling
+- Direct feed from local AIS receiver
 
 ### 3. Firebase Schema
 Create new collection: `boats`
@@ -387,8 +581,21 @@ def is_moving(nav_status: int, speed: float) -> bool:
 Download full sample (85K messages): https://www.aishub.net/downloads/raw-ais-sample.zip
 
 ## Dependencies
-```python
-pip install pyais firebase-admin
+
+### Phase 1 (AISHub API)
+```bash
+pip install python-dotenv requests
+```
+
+### Phase 2 (UDP AIS Dispatcher)
+```bash
+pip install pyais
+```
+
+### Both Phases
+```bash
+# Already installed in project
+pip install firebase-admin
 ```
 
 ## References
@@ -398,8 +605,136 @@ pip install pyais firebase-admin
 - Ship type codes: https://api.vtexplorer.com/docs/ref-aistypes.html
 - Navigation status codes: https://api.vtexplorer.com/docs/ref-navstat.html
 
+## Environment Configuration
+
+### Required Environment Variables
+```bash
+# Create .env file (DO NOT commit to git)
+AISHUB_API_KEY=AH_3551_38EC19B6  # Your AISHub API key
+
+# Or export in shell
+export AISHUB_API_KEY=AH_3551_38EC19B6
+```
+
+### Security Considerations
+1. **Never commit API keys** to version control
+2. Add `.env` to `.gitignore` if using dotenv
+3. Use environment variables or secret management in production
+4. Rotate API keys if accidentally exposed
+
+### Loading Environment Variables
+
+**Option 1: Using python-dotenv (Recommended)**
+```bash
+# Install python-dotenv
+pip install python-dotenv
+```
+
+```python
+# In your Python code
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Access the API key
+api_key = os.environ.get('AISHUB_API_KEY')
+```
+
+**Option 2: Manual export**
+```bash
+# Export in terminal before running script
+export AISHUB_API_KEY=AH_3551_38EC19B6
+python vessel_tracker.py
+```
+
+### Testing API Access
+```python
+# Test script to verify AISHub API access
+import os
+import requests
+from dotenv import load_dotenv
+
+# Load .env file
+load_dotenv()
+
+api_key = os.environ.get('AISHUB_API_KEY')
+if not api_key:
+    print("Error: AISHUB_API_KEY not set")
+    print("Make sure .env file exists or environment variable is exported")
+    exit(1)
+
+# Test API call for Montreal area
+url = 'https://data.aishub.net/ws.php'
+params = {
+    'apikey': api_key,
+    'format': 1,
+    'output': 'json',
+    'latmin': 45.4,
+    'latmax': 45.5,
+    'lonmin': -73.6,
+    'lonmax': -73.5
+}
+
+response = requests.get(url, params=params)
+print(f"Status: {response.status_code}")
+print(f"Vessels found: {len(response.json()) if response.status_code == 200 else 0}")
+```
+
+## Implementation Summary
+
+### Hybrid Approach Benefits
+1. **Immediate Montreal coverage** via AISHub API (Phase 1)
+2. **Superior Welland Canal data** via local AIS (Phase 2)
+3. **Unified Firebase schema** works with both data sources
+4. **Cost-optimized** with 60-second batch updates
+5. **Flexible architecture** allows adding more regions/sources
+
+### Data Flow Architecture
+```
+┌─────────────────┐     ┌─────────────────┐
+│  AISHub API     │     │ Local AIS       │
+│  (Montreal)     │     │ (Welland Canal) │
+└────────┬────────┘     └────────┬────────┘
+         │                       │
+         │ HTTPS                 │ UDP
+         │                       │
+         └───────────┬───────────┘
+                     │
+              ┌──────▼──────┐
+              │   Backend    │
+              │  Processor   │
+              └──────┬──────┘
+                     │
+                     │ Batch Updates
+                     │ (60 seconds)
+                     │
+              ┌──────▼──────┐
+              │  Firebase    │
+              │  Firestore   │
+              └──────┬──────┘
+                     │
+                     │ Real-time
+                     │
+              ┌──────▼──────┐
+              │   iOS App    │
+              │    Users     │
+              └─────────────┘
+```
+
 ## Prerequisites Checklist
+
+### Phase 1 (AISHub API - Montreal)
+- [x] Create .env file with AISHUB_API_KEY
+- [ ] Install python-dotenv: `pip install python-dotenv`
+- [ ] Test API access with sample script
+- [ ] Verify Montreal region coverage
+- [ ] Implement AISHubTracker class
+- [ ] Set up 60-second scheduled updates
+
+### Phase 2 (UDP AIS Dispatcher - Welland Canal)
 - [ ] Set up domain: `ais.bridgeup.app` → CNAME → `ddns.averyy.ca` (Cloudflare proxy OFF)
-- [ ] Open inbound UDP ports on server: 9998-9999
-- [ ] Test UDP connectivity: `nc -u -l 9999` on server, send test packet
+- [ ] Open inbound UDP ports on server for bridge up 192.168.2.126:9998-9999
 - [ ] Configure AIS Dispatcher to send to `ais.bridgeup.app:9999`
+- [ ] Test UDP connectivity: `nc -u -l 9999` on server, send test packet

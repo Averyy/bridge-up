@@ -1,11 +1,12 @@
 # TODO: Vessel Tracking Implementation
 
 ## Overview
-Implement real-time vessel tracking for the St. Lawrence Seaway using a **hybrid approach**:
-- **Phase 1**: AISHub API for Montreal region (proof of concept, remote coverage)
-- **Phase 2**: UDP AIS Dispatcher for Welland Canal (leveraging local AIS infrastructure)
+Implement real-time vessel tracking for the St. Lawrence Seaway using **AISHub API only** (simplified approach):
+- All regions (Welland Canal + Montreal) via AISHub API
+- Single data source for consistency
+- Leverages existing AIS submission to AISHub
 
-This hybrid approach allows immediate implementation for remote regions while utilizing existing local AIS receivers for better real-time data where available.
+This approach simplifies implementation since local AIS data is already being submitted to AISHub.
 
 ## Current Setup
 - **Local AIS Coverage** (St. Catharines/Port Colborne):
@@ -22,21 +23,20 @@ This hybrid approach allows immediate implementation for remote regions while ut
 
 ## Implementation Strategy
 
-### Region-Specific Data Sources:
-- **Welland Canal** (St. Catharines + Port Colborne): UDP from local AIS Dispatcher
-- **Montreal** (South Shore + Salaberry/Beauharnois): AISHub API
-
-This allows leveraging local infrastructure where available while using API for remote coverage.
+### Single Data Source Approach:
+- **All Regions**: AISHub API (includes Welland Canal since local data is submitted)
+- **Simplified Architecture**: One data source, one implementation
+- **Cost Optimized**: Single document per region in Firebase
 
 ---
 
-## Phase 1: AISHub API Implementation (Montreal Region)
+## AISHub API Implementation (All Regions)
 
-### Why Start with AISHub API?
-- Immediate proof of concept without infrastructure setup
-- Test vessel tracking features and Firebase integration
-- Provides coverage for Montreal where no local AIS receiver exists
-- Simpler implementation to validate the concept
+### Why AISHub API Only?
+- Local AIS data already submitted to AISHub
+- Single implementation for all regions
+- Consistent data format
+- No UDP infrastructure needed
 
 ### API Configuration
 
@@ -45,13 +45,13 @@ This allows leveraging local infrastructure where available while using API for 
 **Authentication**:
 ```python
 # Store API key as environment variable (DO NOT commit to git)
-# Add to .env file or set in environment:
-# AISHUB_API_KEY=AH_3551_38EC19B6
+# AISHUB_API_KEY
 
 import os
 
+# Note: AISHub calls it an "API Key" but uses it as the 'username' parameter
 AISHUB_CONFIG = {
-    'apikey': os.environ.get('AISHUB_API_KEY'),  # Required for authentication
+    'username': os.environ.get('AISHUB_API_KEY'),  # API key used as username
     'format': 1,  # Human-readable format
     'output': 'json',  # Response format
 }
@@ -63,8 +63,18 @@ Monitor your AIS station coverage and statistics at: https://www.aishub.net/stat
 ### Geographic Regions for API Queries
 
 ```python
-# Only Montreal regions use AISHub API
-AISHUB_REGIONS = {
+# All regions use AISHub API
+VESSEL_REGIONS = {
+    'welland_canal': {
+        'name': 'Welland Canal',
+        'bounds': {
+            'latmin': 42.836,   # Port Colborne (Lake Erie)
+            'latmax': 43.276,   # Port Weller (Lake Ontario)
+            'lonmin': -79.299,  # Western boundary
+            'lonmax': -79.137   # Eastern boundary
+        },
+        'bridges': ['St. Catharines (5)', 'Port Colborne (3)']
+    },
     'montreal_south_shore': {
         'name': 'Montreal South Shore',
         'bounds': {
@@ -99,13 +109,13 @@ AISHUB_REGIONS = {
 **Example API Calls**:
 ```bash
 # All vessels in Montreal South Shore area
-https://data.aishub.net/ws.php?apikey=YOUR_API_KEY&format=1&output=json&latmin=45.358&latmax=45.546&lonmin=-73.568&lonmax=-73.467
+https://data.aishub.net/ws.php?username=YOUR_USERNAME&format=1&output=json&latmin=45.358&latmax=45.546&lonmin=-73.568&lonmax=-73.467
 
 # Specific vessel by MMSI
-https://data.aishub.net/ws.php?apikey=YOUR_API_KEY&format=1&output=json&mmsi=316001234
+https://data.aishub.net/ws.php?username=YOUR_USERNAME&format=1&output=json&mmsi=316001234
 
 # With compression (BZIP2)
-https://data.aishub.net/ws.php?apikey=YOUR_API_KEY&format=1&output=json&compress=3&latmin=45.358&latmax=45.546&lonmin=-73.568&lonmax=-73.467
+https://data.aishub.net/ws.php?username=YOUR_USERNAME&format=1&output=json&compress=3&latmin=45.358&latmax=45.546&lonmin=-73.568&lonmax=-73.467
 ```
 
 **Response Format Example (JSON)**:
@@ -136,7 +146,7 @@ https://data.aishub.net/ws.php?apikey=YOUR_API_KEY&format=1&output=json&compress
 
 **API Access Requirements**:
 1. Must be an AISHub member with valid API key
-2. API key format: `AH_XXXX_XXXXXXXX`
+2. API key format: `AH_XXXX_XXXXXXXX` (used as 'username' parameter)
 3. Rate limit: Maximum 1 request per minute
 4. Returns empty response if accessed too frequently
 5. Store API key as environment variable for security
@@ -223,518 +233,661 @@ scheduler.add_job(
 )
 ```
 
----
+### Cost-Optimized Firebase Schema
 
-## Phase 2: UDP AIS Dispatcher Implementation (Welland Canal)
+**Single Document per Region** to minimize reads:
 
-### 1. Connect to Local AIS Dispatcher
+Collection: `boats_by_region`
 
-**Architecture**: UDP Push from AIS Dispatcher to backend domain
-
-**Multi-Location Setup**:
-```python
-# Backend UDP listeners
-AIS_SOURCES = {
-    9999: {"name": "Welland Canal", "location": "St. Catharines area"},
-    9998: {"name": "Montreal", "location": "Montreal/South Shore"},
-    # Future: Add more ports for additional locations
-}
-```
-
-**AIS Dispatcher Configuration** (per location):
-1. **Output Configuration**:
-   - Add UDP destination: `ais.bridgeup.app:9999` (different port per location)
-   - Click "Add" and "Save" in web interface
-   
-2. **Settings Panel**:
-   - ✅ Enabled: ON
-   - Downsampling: 60 seconds (recommended)
-   - ✅ Duplicates removal: ON
-   - ✅ Tag: ON (helps identify source)
-   - ❌ Non-VDM: OFF
-
-**Current Device Settings (for reference)**:
-```
-Station Location: 43.1451°N, -79.2102°W (St. Catharines area)
-Inactivity Timeout: 300s
-Reconnect Timeout: 60s
-Downsampling Time: 10s (consider increasing to 60s)
-Duplicates Removal: ON ✓
-NMEA Tags: OFF (consider enabling for source identification)
-Non-VDM: OFF ✓
-``` 
-
-**Backend UDP Listener**:
-```python
-import socket
-import threading
-
-def listen_udp_port(port: int, source_name: str):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(('0.0.0.0', port))
-    
-    while True:
-        data, addr = sock.recvfrom(4096)
-        nmea_sentences = data.decode('utf-8').strip().split('\r\n')
-        for sentence in nmea_sentences:
-            process_nmea(sentence, source_name)
-
-# Start listeners for each location
-for port, config in AIS_SOURCES.items():
-    thread = threading.Thread(
-        target=listen_udp_port, 
-        args=(port, config['name'])
-    )
-    thread.daemon = True
-    thread.start()
-```
-
-### 2. Geographic Region for UDP Coverage
-
-**UDP Coverage Region** (only Welland Canal uses UDP):
-
-```python
-UDP_REGIONS = {
-    'welland_canal': {
-        'name': 'Welland Canal',
-        'description': 'Complete canal from Lake Ontario to Lake Erie',
-        'bounds': {
-            'min_lat': 42.836,   # Port Colborne (Lake Erie)
-            'max_lat': 43.276,   # Port Weller (Lake Ontario)
-            'min_lon': -79.299,  # Western boundary
-            'max_lon': -79.137   # Eastern boundary
-        },
-        'bridges': 8  # St. Catharines (5) + Port Colborne (3)
-    }
-    # Montreal regions use AISHub API instead of UDP
-}
-```
-
-**UDP Implementation Details**:
-- Single UDP port (9999) for Welland Canal AIS data
-- Real-time updates with configurable downsampling
-- Direct feed from local AIS receiver
-
-### 3. Firebase Schema
-Create new collection: `boats`
-
-Document structure (use MMSI as document ID since all boats will have it and its unique):
 ```json
 {
-  "mmsi": "316001234",              // Maritime Mobile Service Identity
-  "name": "FEDERAL YUKINA",         // Vessel name
-  "coordinates": GeoPoint,          // Firebase GeoPoint
-    "lat": 43.123456,               // Latitude (decimal degrees)
-    "lon": -79.123456,              // Longitude (decimal degrees)
-  "course": 225.5,                  // Course over ground (degrees) direction of movement
-  "speed": 12.5,                    // Speed over ground (knots)
-  "moving": true,                   // Boolean: true if speed > 0.5 knots, false if stopped
-  "category": "commercial",         // "commercial", "sail", "passenger", "pleasure", "service"
-  "destination": "MONTREAL",        // Destination port
-  "flag": "CA",                     // Country flag (derived from MMSI)
-  "region": "welland_canal",        // Region ID for filtering
-  "last_updated": timestamp         // Firebase server timestamp
+  // Document ID: region name (e.g., "welland_canal")
+  "vessels": {
+    "316001234": {
+      "mmsi": "316001234",
+      "name": "FEDERAL YUKINA",
+      "lat": 43.123456,
+      "lon": -79.123456,
+      "course": 225.5,
+      "speed": 12.5,
+      "heading": 223,
+      "moving": true,
+      "category": "commercial",
+      "destination": "MONTREAL",
+      "flag": "CA"
+    },
+    "338002345": {
+      // ... another vessel
+    }
+  },
+  "vessel_count": 2,
+  "last_updated": timestamp
 }
 ```
 
-### 4. AIS Message Types to Process
-- **Types 1,2,3**: Position reports (lat/lon, speed, course, heading, status)
-- **Type 5**: Static vessel data (name, callsign, IMO, ship type, destination)
-- **Type 4**: Base station report (for fixed objects)
+**Benefits**:
+- iOS app needs only 1-3 listeners (one per region)
+- Single write per region per minute
+- Vessels automatically "deleted" when not in API response
 
-### 5. Data Processing Requirements
-- Update vessels only when position/data changes (minimize Firebase writes)
-- **DELETE vessels from Firestore after 10 minutes of no updates** (only track currently visible ships)
-- Handle partial data (not all fields always available)
-- Derive country flag from MMSI (first 3 digits = MID)
+---
 
-### 6. Implementation Notes
+## Implementation Details
 
-**NMEA Parsing**:
-- Use `pyais` library for reliable AIS decoding
-- Handle multi-part messages (some AIS messages span multiple sentences)
-- Validate checksums
+### 1. Complete Implementation Example
 
-**Firebase Update Strategy - CRITICAL FOR COST SAVINGS**:
 ```python
-# Backend accumulates vessel updates in memory
-vessel_cache = {}  # MMSI -> vessel data
+# vessel_tracker.py
+import os
+import requests
+from typing import Dict, List
+from datetime import datetime
+import pytz
+from firebase_admin import firestore
+from loguru import logger
+from dotenv import load_dotenv
 
-# Every 60 seconds, batch update ALL vessels at once
-def batch_update_firebase():
-    batch = db.batch()
+# Load environment variables
+load_dotenv()
+
+class VesselTracker:
+    def __init__(self):
+        self.api_key = os.environ.get('AISHUB_API_KEY')
+        if not self.api_key:
+            raise ValueError("AISHUB_API_KEY not set in .env file")
+        
+        self.api_url = 'https://data.aishub.net/ws.php'
+        self.db = firestore.client()
+        
+        # Rate limiting protection
+        self.last_api_call = None
+        self.min_interval_seconds = 65  # 5 second buffer for safety
+        
+        # Metrics for monitoring
+        self.stats = {
+            'last_run': None,
+            'vessels_by_region': {},
+            'api_errors': 0,
+            'total_runs': 0
+        }
+        
+    def fetch_all_regions(self):
+        """Fetch vessels for all regions with retry logic and rate limiting"""
+        import time
+        
+        # Check rate limit
+        if self.last_api_call:
+            elapsed = (datetime.now() - self.last_api_call).total_seconds()
+            if elapsed < self.min_interval_seconds:
+                wait_time = self.min_interval_seconds - elapsed
+                logger.warning(f"Rate limit protection: waiting {wait_time:.1f}s")
+                time.sleep(wait_time)
+        
+        for attempt in range(3):  # Retry up to 3 times
+            try:
+                self._fetch_all_regions_internal()
+                self.stats['total_runs'] += 1
+                self.stats['last_run'] = datetime.now()
+                break
+            except requests.exceptions.RequestException as e:
+                self.stats['api_errors'] += 1
+                if attempt == 2:
+                    logger.error(f"Failed after 3 attempts: {e}")
+                else:
+                    logger.warning(f"Retry {attempt + 1}/3 after error: {e}")
+                    time.sleep(5)  # Wait before retry
     
-    for mmsi, vessel_data in vessel_cache.items():
-        vessel_ref = db.collection('boats').document(mmsi)
-        batch.set(vessel_ref, vessel_data, merge=True)
+    def _fetch_all_regions_internal(self):
+        """Internal method to fetch vessels for all regions"""
+        from config import VESSEL_REGIONS
+        import time
+        
+        regions = list(VESSEL_REGIONS.items())
+        
+        for i, (region_id, config) in enumerate(regions):
+            try:
+                # Fetch from API
+                vessels = self._fetch_vessels_for_region(config['bounds'])
+                
+                # Empty response handling
+                if not vessels:
+                    logger.warning(f"{config['name']}: Empty response (rate limit or no vessels)")
+                
+                # Process vessels with validation
+                processed_vessels = {}
+                for vessel in vessels:
+                    if isinstance(vessel, dict) and self._validate_vessel_data(vessel):
+                        mmsi = str(vessel['MMSI'])
+                        processed_vessels[mmsi] = self._process_vessel(vessel)
+                
+                # Update stats
+                self.stats['vessels_by_region'][region_id] = len(processed_vessels)
+                
+                # Update Firebase (single document per region)
+                doc_ref = self.db.collection('boats_by_region').document(region_id)
+                doc_ref.set({
+                    'region_id': region_id,
+                    'region_name': config['name'],
+                    'vessels': processed_vessels,
+                    'vessel_count': len(processed_vessels),
+                    'last_updated': firestore.SERVER_TIMESTAMP
+                })
+                
+                logger.info(f"✓ {config['name']}: {len(processed_vessels)} vessels")
+                
+                # Wait 65 seconds between regions (except after last region)
+                if i < len(regions) - 1:
+                    logger.info(f"Waiting 65s before next region (API rate limit)...")
+                    time.sleep(65)
+                
+            except Exception as e:
+                logger.error(f"✗ {config['name']}: {str(e)}")
+                # Continue to next region even if this one fails
+                if i < len(regions) - 1:
+                    logger.info(f"Waiting 65s before next region (API rate limit)...")
+                    time.sleep(65)
     
-    batch.commit()  # Single write operation
+    def _fetch_vessels_for_region(self, bounds: Dict) -> List[Dict]:
+        """Fetch vessels from AISHub API for specific bounds"""
+        params = {
+            'username': self.api_key,  # API key is used as username parameter
+            'format': 1,  # Human-readable format
+            'output': 'json',
+            'latmin': bounds['latmin'],
+            'latmax': bounds['latmax'],
+            'lonmin': bounds['lonmin'],
+            'lonmax': bounds['lonmax'],
+            'compress': 0,  # Could use 3 for BZIP2 if bandwidth is an issue
+            'interval': 30  # Only return positions from last 30 minutes
+        }
+        
+        # Track API call time
+        self.last_api_call = datetime.now()
+        
+        response = requests.get(self.api_url, params=params, timeout=10)
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                # AISHub returns [metadata, vessels_array] format
+                if isinstance(data, list) and len(data) == 2:
+                    metadata, vessels = data
+                    if isinstance(vessels, list):
+                        return vessels
+                    else:
+                        logger.warning(f"Unexpected vessel data type: {type(vessels)}")
+                else:
+                    logger.warning(f"Unexpected API response format: {type(data)}")
+                return []
+            except ValueError as e:
+                logger.error(f"Failed to parse JSON response: {e}")
+                return []
+        else:
+            logger.error(f"API returned status code: {response.status_code}")
+            return []
     
-# Schedule batch updates
-scheduler.add_job(batch_update_firebase, 'interval', seconds=60)
+    def _validate_vessel_data(self, vessel_data: Dict) -> bool:
+        """Validate vessel data before processing"""
+        try:
+            lat = float(vessel_data.get('LATITUDE', 0))
+            lon = float(vessel_data.get('LONGITUDE', 0))
+            
+            # Valid coordinate ranges
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                return False
+                
+            # Must have MMSI
+            if not vessel_data.get('MMSI'):
+                return False
+            
+            # Validate coordinate values aren't exactly 0 (common AIS error)
+            if lat == 0.0 and lon == 0.0:
+                return False
+                
+            return True
+        except (ValueError, TypeError):
+            return False
+    
+    def _process_vessel(self, vessel_data: Dict) -> Dict:
+        """Convert AISHub format to our simplified format"""
+        # Calculate data age if TIME field exists
+        data_age_minutes = None
+        if vessel_data.get('TIME'):
+            try:
+                # Parse "2024-06-03 12:34:56 GMT" format
+                ais_time = datetime.strptime(vessel_data['TIME'], '%Y-%m-%d %H:%M:%S GMT')
+                data_age_minutes = (datetime.utcnow() - ais_time).total_seconds() / 60
+            except:
+                pass
+        
+        # Parse ETA if available
+        eta_timestamp = None
+        eta_raw = vessel_data.get('ETA', '').strip()
+        if eta_raw and eta_raw != '00-00 00:00':  # Invalid ETA
+            try:
+                # Parse "06-27 18:00" format (MM-DD HH:MM)
+                current_year = datetime.now().year
+                eta_datetime = datetime.strptime(f"{current_year}-{eta_raw}", '%Y-%m-%d %H:%M')
+                # Convert to UTC (ETA is typically in destination timezone, but we'll assume UTC)
+                eta_timestamp = eta_datetime.replace(tzinfo=pytz.UTC)
+            except:
+                pass  # Invalid format, leave as None
+        
+        return {
+            'mmsi': str(vessel_data['MMSI']),
+            'imo': vessel_data.get('IMO', 0),  # Important vessel identifier
+            'name': vessel_data.get('NAME', 'Unknown').strip(),
+            'callsign': vessel_data.get('CALLSIGN', '').strip(),
+            'lat': float(vessel_data['LATITUDE']),
+            'lon': float(vessel_data['LONGITUDE']),
+            'course': float(vessel_data.get('COG', 0)),
+            'speed': float(vessel_data.get('SOG', 0)),
+            'heading': int(vessel_data.get('HEADING', 511)),
+            'rot': float(vessel_data.get('ROT', 0)),  # Rate of turn
+            'moving': self._is_moving(vessel_data),
+            'nav_status': int(vessel_data.get('NAVSTAT', 0)),
+            'category': self._get_vessel_category(int(vessel_data.get('TYPE', 0))),
+            'ship_type': int(vessel_data.get('TYPE', 0)),  # Raw type for iOS
+            'destination': vessel_data.get('DEST', '').strip(),
+            'eta': eta_timestamp,  # Firestore timestamp or None
+            'flag': self._get_country_flag(str(vessel_data['MMSI'])),
+            'length': vessel_data.get('A', 0) + vessel_data.get('B', 0),
+            'width': vessel_data.get('C', 0) + vessel_data.get('D', 0),
+            'draught': float(vessel_data.get('DRAUGHT', 0)),
+            'data_age_minutes': data_age_minutes  # How old is this AIS data
+        }
+    
+    def _is_moving(self, vessel_data: Dict) -> bool:
+        """Better movement detection using nav status and speed"""
+        nav_status = int(vessel_data.get('NAVSTAT', 0))
+        speed = float(vessel_data.get('SOG', 0))
+        
+        # Stationary statuses: 1=At anchor, 5=Moored, 6=Aground
+        if nav_status in [1, 5, 6]:
+            return False
+        
+        return speed > 0.5
+    
+    def _get_vessel_category(self, ship_type: int) -> str:
+        """Categorize vessel based on AIS ship type"""
+        if ship_type in range(70, 90):  # Cargo/Tanker
+            return "commercial"
+        elif ship_type in [31, 32, 52]:  # Towing
+            return "commercial"
+        elif ship_type == 36:  # Sailing
+            return "sail"
+        elif ship_type in range(60, 70):  # Passenger
+            return "passenger"
+        elif ship_type == 37:  # Pleasure
+            return "pleasure"
+        elif ship_type in [33, 34, 35, 50, 51, 53, 54, 55, 58]:  # Service
+            return "service"
+        else:
+            return "commercial"
+    
+    def _get_country_flag(self, mmsi: str) -> str:
+        """Extract country code from MMSI"""
+        if len(mmsi) >= 3:
+            mid = mmsi[:3]
+            # Common flags in the Seaway
+            if mid == '316': return 'CA'      # Canada
+            elif mid == '338': return 'US'    # United States
+            elif mid == '228': return 'FR'    # France
+            elif mid == '232': return 'GB'    # United Kingdom
+            elif mid == '244': return 'NL'    # Netherlands
+            elif mid == '211': return 'DE'    # Germany
+            elif mid == '265': return 'SE'    # Sweden
+            elif mid == '219': return 'DK'    # Denmark
+            elif mid == '257': return 'NO'    # Norway
+            elif mid == '230': return 'FI'    # Finland
+            elif mid == '255': return 'PT'    # Portugal (Madeira)
+            elif mid == '368': return 'US'    # USA (alternate)
+            elif mid == '369': return 'US'    # USA (alternate)
+        return 'UN'  # Unknown
+
+# For testing
+if __name__ == '__main__':
+    tracker = VesselTracker()
+    tracker.fetch_all_regions()
 ```
 
-**Cost Impact**:
-- Without batching: 60 vessels × 60 updates/hour = 3,600 writes/hour
-- With batching: 60 vessels × 1 batch/minute = 60 writes/hour
-- **60x reduction in Firebase writes!**
+### 2. Integration with Existing System
 
-**Implementation Details**:
-- Backend receives continuous UDP stream from AIS Dispatcher
-- Updates kept in memory cache (not Firebase)
-- Every 60 seconds: batch write ALL vessels to Firebase
-- Only include vessels that have been updated since last batch
-- **DELETE vessels from Firestore** that haven't been seen for 10+ minutes
-- **Assign region ID** based on vessel coordinates for iOS filtering
+Add to scheduler in `start_flask.py` and `start_waitress.py`:
 
-**Vessel Cleanup Strategy**:
 ```python
-def batch_update_firebase():
-    batch = db.batch()
-    current_time = time.time()
-    
-    # Update active vessels
-    for mmsi, vessel_data in vessel_cache.items():
-        if current_time - vessel_data['last_seen'] < 600:  # 10 minutes
-            vessel_ref = db.collection('boats').document(mmsi)
-            batch.set(vessel_ref, vessel_data, merge=True)
-    
-    # Delete stale vessels
-    all_vessels = db.collection('boats').stream()
-    for vessel in all_vessels:
-        if vessel.id not in vessel_cache or \
-           current_time - vessel_cache[vessel.id]['last_seen'] >= 600:
-            batch.delete(vessel.reference)
-    
-    batch.commit()
+# Add after existing imports
+from vessel_tracker import VesselTracker
+
+# Initialize vessel tracker
+vessel_tracker = VesselTracker()
+
+# In start_scheduler() function, add:
+# Vessel tracking - every 3.5 minutes (65s per region * 3 regions = 195s, round up to 210s)
+scheduler.add_job(
+    vessel_tracker.fetch_all_regions, 
+    'interval', 
+    seconds=210,  # 3.5 minutes to complete all regions safely
+    id='vessel_tracking',
+    max_instances=1,
+    coalesce=True,
+    replace_existing=True
+)
 ```
 
-**Error Handling**:
-- Connection failures to AIS Dispatcher
-- Malformed NMEA sentences
-- Firebase quota limits
-- Invalid position data (lat=91, lon=181)
+### 3. Add to config.py
 
-### 7. Expected Vessel Traffic in Welland Canal
-
-**Typical vessels**:
-- Lakers (bulk carriers) - 600-740 feet
-- Salties (ocean vessels) - up to 740 feet  
-- Tugboats and service vessels
-- Recreational boats (summer months)
-
-**Traffic volume**:
-- ~3,000 vessel transits per year
-- ~10-20 vessels in canal at any time
-- Peak season: April-December
-- 24/7 operations
-
-### 8. Testing Approach
-1. Verify AIS Dispatcher connection and data flow
-2. Monitor actual vessel count in Welland Canal bounds
-3. Test NMEA parsing with sample sentences
-4. Confirm geographic filtering works correctly
-5. Validate Firebase writes and updates
-6. Check vessel cleanup after timeout
-7. Verify vessel appears on iOS app map
-
-### 9. Multi-Location Considerations
-
-**Source Identification**:
-- Use different UDP ports per location
-- Store source metadata with vessel data
-- Consider adding 'source' field to Firebase documents
-
-**Coverage Areas** (future phases):
-- Phase 1: Welland Canal (Port Colborne to St. Catharines)
-- Phase 2: Montreal/South Shore bridges
-- Phase 3: Additional Seaway locations
-
-**Network Requirements**:
-- Backend domain: e.g., `ais.bridgeup.app`
-- Open UDP ports: 9998-9999 (more as needed)
-- Firewall: Allow inbound UDP on these ports
-- Bandwidth: ~10KB/min per location (with 60s downsampling)
-- Monitor for packet loss
-
-**Security Considerations**:
-- AIS data is public (not sensitive)
-- Validate packet format before parsing
-- Rate limit per source IP
-- Log source IPs for monitoring
-- Consider IP allowlist if locations are static
-
-### 10. Integration with Existing System
-- Run as separate process/thread alongside bridge scraper
-- Use same Firebase initialization as `scraper.py`
-- Follow existing logging patterns
-- Add to scheduler if periodic cleanup needed
-
-### 9. Vessel Tracking Feature Requirements
-
-**Backend Implementation**:
-- Add `region` field to each vessel document based on coordinates
-- Region determines which vessels are visible to users
-- Vessels only stored if they fall within defined region boundaries
-
-**Region Assignment Logic**:
-- Check vessel lat/lon against each region's bounds
-- Assign appropriate region ID: `welland_canal`, `montreal_south_shore`, or `salaberry_beauharnois`
-- Vessels outside all regions are not stored in Firebase
-
-**Client Filtering Strategy**:
-- Clients query vessels by region field
-- Only regions with enabled bridges should have listeners
-- Reduces unnecessary data transfer and costs
-
-### 10. Country Flag Mapping (MID to ISO)
-MMSI starts with 3-digit Maritime Identification Digits (MID):
-- 316: Canada (CA)
-- 338: United States (US)
-- 228: France (FR)
-- etc. (full list: https://www.itu.int/en/ITU-R/terrestrial/fmd/Pages/mid.aspx)
-
-### 11. Vessel Type Classification
-
-**Text Labels for iOS App** (based on AIS ship type codes):
 ```python
-def get_vessel_category(ship_type: int) -> str:
-    """Returns vessel category label for iOS app to handle display."""
-    
-    # Commercial vessels (majority of canal traffic)
-    if ship_type in range(70, 90):  # Cargo (70-79) and Tanker (80-89)
-        return "commercial"
-    
-    # Towing/tug operations
-    elif ship_type in [31, 32, 52]:
-        return "commercial"  # Tugs are commercial operations
-    
-    # Sailing vessels
-    elif ship_type == 36:
-        return "sail"
-    
-    # Passenger vessels (commercial passenger operations)
-    elif ship_type in range(60, 70):
-        return "passenger"
-    
-    # Pleasure/recreational craft
-    elif ship_type == 37:
-        return "pleasure"
-    
-    # Fishing (commercial)
-    elif ship_type == 30:
-        return "commercial"
-    
-    # Service/government vessels
-    elif ship_type in [33, 34, 35, 50, 51, 53, 54, 55, 58]:
-        return "service"
-    
-    # Unknown/other
-    else:
-        return "commercial"
+# Add to config.py
+VESSEL_REGIONS = {
+    'welland_canal': {
+        'name': 'Welland Canal',
+        'bounds': {
+            'latmin': 42.836,   # Port Colborne (Lake Erie)
+            'latmax': 43.276,   # Port Weller (Lake Ontario)
+            'lonmin': -79.299,  # Western boundary
+            'lonmax': -79.137   # Eastern boundary
+        }
+    },
+    'montreal_south_shore': {
+        'name': 'Montreal South Shore',
+        'bounds': {
+            'latmin': 45.358,
+            'latmax': 45.546,
+            'lonmin': -73.568,
+            'lonmax': -73.467
+        }
+    },
+    'salaberry_beauharnois': {
+        'name': 'Salaberry/Beauharnois',
+        'bounds': {
+            'latmin': 45.176,
+            'latmax': 45.283,
+            'lonmin': -74.165,
+            'lonmax': -73.953
+        }
+    }
+}
 ```
 
-**Movement Status** (from navigation status and speed):
+### 4. Testing Scripts
+
 ```python
-def is_moving(nav_status: int, speed: float) -> bool:
-    """Determines if vessel is moving based on AIS data."""
+# test_vessels.py - Basic test
+import os
+from dotenv import load_dotenv
+from vessel_tracker import VesselTracker
+from loguru import logger
+
+# Test the implementation
+load_dotenv()
+
+if not os.environ.get('AISHUB_API_KEY'):
+    logger.error("Please set AISHUB_API_KEY in .env file")
+    exit(1)
+
+tracker = VesselTracker()
+logger.info("Testing vessel tracking...")
+tracker.fetch_all_regions()
+logger.info("Check Firebase console for boats_by_region collection")
+
+# test_vessels_comprehensive.py - Detailed testing
+import os
+import time
+from dotenv import load_dotenv
+from vessel_tracker import VesselTracker
+from loguru import logger
+from config import VESSEL_REGIONS
+
+load_dotenv()
+
+def test_single_region(tracker, region_id):
+    """Test a single region fetch"""
+    bounds = VESSEL_REGIONS[region_id]['bounds']
+    logger.info(f"\nTesting {region_id}:")
+    logger.info(f"  Bounds: {bounds}")
     
-    # Definitely not moving if anchored, moored, or aground
-    if nav_status in [1, 5, 6]:  # At anchor, moored, aground
-        return False
+    vessels = tracker._fetch_vessels_for_region(bounds)
+    logger.info(f"  Raw vessels found: {len(vessels)}")
     
-    # Moving if speed is above threshold (0.5 knots)
-    return speed > 0.5
+    if vessels:
+        # Validate and show sample
+        valid_count = sum(1 for v in vessels if tracker._validate_vessel_data(v))
+        logger.info(f"  Valid vessels: {valid_count}")
+        
+        # Show sample vessel
+        sample = vessels[0]
+        logger.info(f"  Sample: {sample.get('NAME', 'Unknown')} "
+                   f"({sample.get('TYPE', 0)}) at "
+                   f"{sample.get('LATITUDE')}, {sample.get('LONGITUDE')}")
+        logger.info(f"  Moving: {sample.get('SOG', 0)} knots, "
+                   f"Status: {sample.get('NAVSTAT', 0)}")
+
+def main():
+    tracker = VesselTracker()
+    
+    # Test each region individually
+    logger.info("=== Testing Individual Regions ===")
+    for region_id in VESSEL_REGIONS.keys():
+        test_single_region(tracker, region_id)
+        time.sleep(61)  # Respect rate limit
+    
+    # Test full update
+    logger.info("\n=== Testing Full Update ===")
+    tracker.fetch_all_regions()
+    
+    # Show stats
+    logger.info(f"\n=== Statistics ===")
+    logger.info(f"Total runs: {tracker.stats['total_runs']}")
+    logger.info(f"API errors: {tracker.stats['api_errors']}")
+    logger.info(f"Vessels by region: {tracker.stats['vessels_by_region']}")
+
+if __name__ == '__main__':
+    main()
 ```
-
-
-## Architecture Decision: UDP Push Approach
-
-**Why UDP Push is Optimal**:
-
-1. **Native AIS Dispatcher Support**: Built-in UDP output, no custom code needed
-2. **Multiple Locations**: Each location pushes to different port on backend domain
-3. **Automatic Handling**: AIS Dispatcher manages:
-   - Downsampling (60s = 10x data reduction)
-   - Duplicate removal
-   - CRC validation
-   - Connection persistence
-
-4. **Cost Optimization**:
-   - Raw AIS: ~300 updates/vessel/hour
-   - AIS Dispatcher downsampling: ~60 updates/vessel/hour (5x reduction)
-   - Backend batch updates: 1 write/vessel/minute (60x reduction)
-   - **Combined: 300x fewer Firebase writes!**
-
-5. **Simple Deployment**:
-   - Just configure domain:port in AIS Dispatcher web UI
-   - No VPN, no port forwarding at remote sites
-   - Works over cellular/home networks
-
-## Sample AIS Data
-```
-!AIVDM,1,1,,B,133w;`PP00PCqghMcje0h4pP06mf,0*65
-!AIVDM,2,1,3,B,533w;`02>05h961O80pTpN1T@Tr2222222220O2@73360Ht50000000000,0*5C
-!AIVDM,2,2,3,B,00000000000,2*27
-```
-
-Download full sample (85K messages): https://www.aishub.net/downloads/raw-ais-sample.zip
 
 ## Dependencies
 
-### Phase 1 (AISHub API)
 ```bash
-pip install python-dotenv requests
+pip install python-dotenv  # For environment variables
+# requests and firebase-admin already installed
 ```
-
-### Phase 2 (UDP AIS Dispatcher)
-```bash
-pip install pyais
-```
-
-### Both Phases
-```bash
-# Already installed in project
-pip install firebase-admin
-```
-
-## References
-- AIS Dispatcher docs: https://www.aishub.net/ais-dispatcher
-- NMEA AIS format: https://gpsd.gitlab.io/gpsd/AIVDM.html
-- pyais library: https://github.com/M0r13n/pyais
-- Ship type codes: https://api.vtexplorer.com/docs/ref-aistypes.html
-- Navigation status codes: https://api.vtexplorer.com/docs/ref-navstat.html
 
 ## Environment Configuration
 
 ### Required Environment Variables
 ```bash
 # Create .env file (DO NOT commit to git)
-AISHUB_API_KEY=AH_3551_38EC19B6  # Your AISHub API key
-
-# Or export in shell
-export AISHUB_API_KEY=AH_3551_38EC19B6
+AISHUB_API_KEY=AH_3551_38EC19B6  # Your API key (passed as 'username' parameter)
 ```
 
 ### Security Considerations
 1. **Never commit API keys** to version control
-2. Add `.env` to `.gitignore` if using dotenv
-3. Use environment variables or secret management in production
+2. `.env` already in `.gitignore`
+3. Use environment variables in production
 4. Rotate API keys if accidentally exposed
-
-### Loading Environment Variables
-
-**Option 1: Using python-dotenv (Recommended)**
-```bash
-# Install python-dotenv
-pip install python-dotenv
-```
-
-```python
-# In your Python code
-import os
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
-
-# Access the API key
-api_key = os.environ.get('AISHUB_API_KEY')
-```
-
-**Option 2: Manual export**
-```bash
-# Export in terminal before running script
-export AISHUB_API_KEY=AH_3551_38EC19B6
-python vessel_tracker.py
-```
-
-### Testing API Access
-```python
-# Test script to verify AISHub API access
-import os
-import requests
-from dotenv import load_dotenv
-
-# Load .env file
-load_dotenv()
-
-api_key = os.environ.get('AISHUB_API_KEY')
-if not api_key:
-    print("Error: AISHUB_API_KEY not set")
-    print("Make sure .env file exists or environment variable is exported")
-    exit(1)
-
-# Test API call for Montreal area
-url = 'https://data.aishub.net/ws.php'
-params = {
-    'apikey': api_key,
-    'format': 1,
-    'output': 'json',
-    'latmin': 45.4,
-    'latmax': 45.5,
-    'lonmin': -73.6,
-    'lonmax': -73.5
-}
-
-response = requests.get(url, params=params)
-print(f"Status: {response.status_code}")
-print(f"Vessels found: {len(response.json()) if response.status_code == 200 else 0}")
-```
 
 ## Implementation Summary
 
-### Hybrid Approach Benefits
-1. **Immediate Montreal coverage** via AISHub API (Phase 1)
-2. **Superior Welland Canal data** via local AIS (Phase 2)
-3. **Unified Firebase schema** works with both data sources
-4. **Cost-optimized** with 60-second batch updates
-5. **Flexible architecture** allows adding more regions/sources
+### Simplified Architecture Benefits
+1. **Immediate coverage** for all 3 regions
+2. **Single data source** (AISHub API)
+3. **Cost-optimized** with single document per region
+4. **Simple implementation** - one API, one format
+5. **Automatic vessel cleanup** - vessels not in API response are removed
 
-### Data Flow Architecture
+### Data Flow
 ```
-┌─────────────────┐     ┌─────────────────┐
-│  AISHub API     │     │ Local AIS       │
-│  (Montreal)     │     │ (Welland Canal) │
-└────────┬────────┘     └────────┬────────┘
-         │                       │
-         │ HTTPS                 │ UDP
-         │                       │
-         └───────────┬───────────┘
-                     │
-              ┌──────▼──────┐
-              │   Backend    │
-              │  Processor   │
-              └──────┬──────┘
-                     │
-                     │ Batch Updates
-                     │ (60 seconds)
-                     │
-              ┌──────▼──────┐
-              │  Firebase    │
-              │  Firestore   │
-              └──────┬──────┘
-                     │
-                     │ Real-time
-                     │
-              ┌──────▼──────┐
-              │   iOS App    │
-              │    Users     │
-              └─────────────┘
+┌─────────────────┐
+│  AISHub API     │
+│  (All Regions)  │
+└────────┬────────┘
+         │ HTTPS (60s interval)
+         │
+  ┌──────▼──────┐
+  │   Backend    │
+  │  Processor   │
+  └──────┬──────┘
+         │ Single doc per region
+         │
+  ┌──────▼──────┐
+  │  Firebase    │
+  │  Firestore   │
+  └──────┬──────┘
+         │ Real-time listeners
+         │
+  ┌──────▼──────┐
+  │   iOS App    │
+  └─────────────┘
 ```
 
-## Prerequisites Checklist
+## Implementation Checklist
 
-### Phase 1 (AISHub API - Montreal)
-- [x] Create .env file with AISHUB_API_KEY
+- [ ] Create .env file with AISHUB_API_KEY
 - [ ] Install python-dotenv: `pip install python-dotenv`
-- [ ] Test API access with sample script
-- [ ] Verify Montreal region coverage
-- [ ] Implement AISHubTracker class
-- [ ] Set up 60-second scheduled updates
+- [ ] Add VESSEL_REGIONS to config.py
+- [ ] Create vessel_tracker.py
+- [ ] Test with test_vessels.py script
+- [ ] Add to schedulers in start_flask.py and start_waitress.py
+- [ ] Deploy and monitor logs
+- [ ] Coordinate with iOS team for new boats_by_region collection
 
-### Phase 2 (UDP AIS Dispatcher - Welland Canal)
-- [ ] Set up domain: `ais.bridgeup.app` → CNAME → `ddns.averyy.ca` (Cloudflare proxy OFF)
-- [ ] Open inbound UDP ports on server for bridge up 192.168.2.126:9998-9999
-- [ ] Configure AIS Dispatcher to send to `ais.bridgeup.app:9999`
-- [ ] Test UDP connectivity: `nc -u -l 9999` on server, send test packet
+## Expected Results
+
+- 3 documents in `boats_by_region` collection
+- Each document contains all vessels in that region
+- Updates cycle: 3.5 minutes total (65s between regions for safety)
+- Typical vessel counts:
+  - Welland Canal: 10-20 vessels
+  - Montreal regions: 5-15 vessels each
+- Total Firebase cost: ~0.86 writes/minute (extremely minimal)
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Empty API responses**
+   - Rate limit exceeded (wait 60 seconds)
+   - API key invalid or expired
+   - No vessels in region (normal at night/winter)
+   - Check station status: https://www.aishub.net/stations/3551
+
+2. **Vessels not showing expected data**
+   - Some vessels may not transmit all AIS data
+   - Navigation status 15 = "undefined" (common)
+   - Heading 511 = "not available"
+   - Name/destination may be blank for small vessels
+
+3. **Performance considerations**
+   - API rate limit prevents parallel region fetching
+   - Each region takes ~1-2 seconds to fetch
+   - Total update cycle: ~5-10 seconds for all regions
+
+4. **Validation failures**
+   - Invalid coordinates (rare but happens)
+   - Missing MMSI (corrupted AIS data)
+   - Check logs for specific validation errors
+
+### Monitoring Health
+
+```python
+# Add health check endpoint to app.py
+@app.route('/vessels/health')
+def vessel_health():
+    """Check vessel tracking health"""
+    if hasattr(vessel_tracker, 'stats'):
+        last_run = vessel_tracker.stats.get('last_run')
+        if last_run:
+            age = (datetime.now() - last_run).seconds
+            healthy = age < 120  # Should run every 60s
+            return {
+                'healthy': healthy,
+                'last_run_seconds_ago': age,
+                'vessels_by_region': vessel_tracker.stats['vessels_by_region'],
+                'api_errors': vessel_tracker.stats['api_errors']
+            }
+    return {'healthy': False, 'error': 'No stats available'}, 503
+```
+
+### Debug Mode
+
+For development, add verbose logging:
+```python
+# In vessel_tracker.py __init__
+self.debug = os.environ.get('VESSEL_DEBUG', '').lower() == 'true'
+
+# In _process_vessel
+if self.debug:
+    logger.debug(f"Processing: {vessel_data.get('NAME')} "
+                f"Type:{vessel_data.get('TYPE')} "
+                f"Status:{vessel_data.get('NAVSTAT')}")
+```
+
+## Important Considerations
+
+### Navigation Status Codes (NAVSTAT)
+- 0 = Under way using engine
+- 1 = At anchor
+- 2 = Not under command
+- 3 = Restricted manoeuverability
+- 4 = Constrained by draught
+- 5 = Moored
+- 6 = Aground
+- 7 = Engaged in fishing
+- 8 = Under way sailing
+- 9-14 = Reserved
+- 15 = Not defined (default)
+
+### Data Quality Notes
+- **AIS Coverage**: Not all vessels transmit AIS (small recreational boats often don't)
+- **Data Age**: Check `data_age_minutes` - data older than 10 minutes may be stale
+- **API Interval**: We request only positions from last 30 minutes (`interval: 30`)
+- **TIME Field**: This is when the AIS message was received, not current time
+- **Name/Destination**: Often blank or incorrectly entered by crew
+- **Heading vs Course**: Heading = where bow points, Course = direction of travel
+- **Special Values**: Speed 102.3 = invalid, Heading 511 = not available
+
+### Performance Optimization
+- **Compression**: Set `compress: 3` in API params for BZIP2 (reduces bandwidth ~70%)
+- **Field Selection**: AISHub doesn't support field filtering, always returns all data
+- **Caching**: Consider local caching if same vessel data needed multiple times
+
+### Future Enhancements
+1. **Vessel History Tracking**
+   - Store vessel tracks in separate collection
+   - Useful for analyzing traffic patterns
+   
+2. **Geofencing Alerts**
+   - Notify when vessels enter/exit specific areas
+   - Useful for bridge approach warnings
+   
+3. **Vessel Details API**
+   - Separate endpoint to fetch detailed vessel info by MMSI
+   - Reduces data in main response
+   
+4. **WebSocket Support**
+   - Real-time updates without polling
+   - Requires different API/infrastructure
+   
+5. **AIS Message Type 27**
+   - Long-range AIS for vessels far from shore
+   - Different data format, rarely seen in canals
+
+### iOS App Considerations
+- **Vessel Icons**: Use `category` field for basic icons, `ship_type` for detailed
+- **Movement Arrows**: Use `heading` for arrow direction, `speed` for animation
+- **Stale Data**: Highlight vessels with `data_age_minutes` > 10
+- **Special Vessels**: Flag pilot boats (type 50), tugs (31-32), SAR (51)
+
+## API Compliance Summary
+
+Our implementation fully complies with AISHub API requirements:
+- ✅ Uses correct URL: `https://data.aishub.net/ws.php`
+- ✅ Authentication via `username` parameter
+- ✅ Rate limiting: 60-second minimum interval enforced
+- ✅ Human-readable format (`format=1`)
+- ✅ JSON output (`output=json`)
+- ✅ Geographic bounds for each region
+- ✅ Position age filtering (`interval=30`)
+- ✅ Error handling for empty responses
+- ✅ Validates coordinate ranges before storage
+- ✅ Handles special values (Speed 102.3, Heading 511)

@@ -54,6 +54,20 @@ pip install -r requirements.txt
 python start_flask.py
 ```
 
+### ⚠️ Initial Setup: Statistics Required
+
+On first deployment or if statistics are missing, **you must manually run the statistics calculation**. The iOS app requires statistics data and will crash without it.
+
+```bash
+# Run once after initial deployment
+python -c "from scraper import daily_statistics_update; daily_statistics_update()"
+
+# Or in Docker
+docker exec <container_name> python -c "from scraper import daily_statistics_update; daily_statistics_update()"
+```
+
+Statistics are automatically recalculated daily at 4 AM, but won't exist until then on a fresh deployment.
+
 
 ## Architecture
 

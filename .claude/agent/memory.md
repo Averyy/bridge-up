@@ -158,4 +158,14 @@ with state_lock:
 - `config.py` - BRIDGE_URLS → BRIDGE_KEYS, loads endpoints from .env
 - `requirements.txt` - Removed beautifulsoup4/lxml, added python-dotenv
 - `start_flask.py`, `start_waitress.py` - Updated intervals
+- `Dockerfile` - Python 3.9 → 3.11 (fixes importlib.metadata compatibility)
 - Tests and documentation updated
+
+### Critical Lesson: Statistics Required on Fresh Deployment
+**Problem**: iOS app crashes without statistics data in Firebase.
+**Cause**: Statistics only auto-calculate at 4 AM daily. Fresh deployments have no stats.
+**Solution**: Must manually run `daily_statistics_update()` after initial deployment:
+```bash
+python -c "from scraper import daily_statistics_update; daily_statistics_update()"
+```
+This is now documented in README.md.

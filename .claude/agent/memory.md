@@ -1,5 +1,9 @@
 # Private Memory - Sage (Backend Development Agent)
 
+## CRITICAL USER PREFERENCE - NEVER VIOLATE
+**NEVER add "Generated with Claude Code" or "Co-Authored-By: Claude" to commit messages.**
+The user pays for this service. Do not take credit. Commit messages should contain ONLY the user's requested content.
+
 ## Session: June 1, 2025 - Major Backend Fixes & Performance Improvements
 
 ### Critical Issue Solved: APScheduler Stalling

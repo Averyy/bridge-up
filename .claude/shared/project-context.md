@@ -21,11 +21,11 @@ Scheduled Updates          Statistical       Real-time Updates    Live Status
 ```
 
 **Key Design Decisions**: 
-- Aggressive scraping schedule for real-time accuracy (30-60 second intervals)
+- Aggressive scraping schedule for real-time accuracy (20-30 second intervals)
 - Historical data analysis for predictive confidence intervals
 - Firebase as the bridge between backend and iOS app
 - Docker containerization for reliable deployment
-- Dual parser system for old (table) and new (div) website formats
+- Dual parser system for old and new JSON API formats with smart endpoint caching
 - Concurrent execution with timeout protection (10s + 3 retries)
 - Test-first development workflow
 
@@ -49,7 +49,7 @@ Scheduled Updates          Statistical       Real-time Updates    Live Status
 
 - **Language**: Python 3.9+
 - **Web Framework**: Flask with APScheduler for development, Waitress for production
-- **Scraping**: requests (with timeouts), BeautifulSoup4 for robust web scraping
+- **Data Fetching**: requests (with timeouts), direct JSON API consumption
 - **Database**: Firebase Firestore for real-time data synchronization
 - **Scheduling**: APScheduler with `max_instances=3`, `coalesce=True`
 - **Deployment**: Docker with GitHub Actions CI/CD
@@ -68,12 +68,12 @@ Scheduled Updates          Statistical       Real-time Updates    Live Status
 
 ### Core Functionality
 
-1. **Web Scraping Engine**
-   - Scheduled scraping of official bridge status websites
-   - HTML parsing and data extraction with BeautifulSoup4
-   - Error handling for website changes and downtime
+1. **Data Fetching Engine**
+   - Scheduled fetching of official bridge status JSON API
+   - JSON parsing and data extraction
+   - Smart endpoint caching (auto-discovers correct endpoint per region)
+   - Error handling for API changes and downtime
    - Rate limiting to avoid IP blocking
-   - Random User-Agent headers to avoid detection
 
 2. **Data Processing Pipeline**
    - Status normalization and validation
@@ -147,8 +147,8 @@ The backend scrapes bridge status from official sources:
 ## Scheduling System
 
 ### Scraping Intervals
-- **Daytime (6:00 AM - 9:59 PM)**: 30-second intervals for high traffic periods
-- **Nighttime (10:00 PM - 5:59 AM)**: 60-second intervals for reduced activity
+- **Daytime (6:00 AM - 9:59 PM)**: 20-second intervals for high traffic periods
+- **Nighttime (10:00 PM - 5:59 AM)**: 30-second intervals for reduced activity
 - **Daily Statistics**: 4:00 AM recalculation of confidence intervals
 
 ### Error Handling
@@ -159,9 +159,9 @@ The backend scrapes bridge status from official sources:
 
 ## Data Processing Workflow
 
-### 1. Web Scraping
-- Fetch bridge status pages
-- Parse HTML for status information
+### 1. Data Fetching
+- Fetch bridge status from JSON API
+- Parse JSON for status information
 - Extract upcoming closure schedules
 - Validate data format and completeness
 
@@ -193,19 +193,19 @@ The backend scrapes bridge status from official sources:
 
 ### Bridge Configuration (config.py)
 ```python
-BRIDGE_URLS = {
-    'https://seaway-greatlakes.com/bridgestatus/detailsnai?key=BridgeSCT': {
-        'region': 'St Catharines',
-        'shortform': 'SCT'
-    },
-    # ... other regions
+# Bridge keys and metadata (endpoints loaded from .env)
+BRIDGE_KEYS = {
+    'BridgeSCT': {'region': 'St Catharines', 'shortform': 'SCT'},
+    'BridgePC': {'region': 'Port Colborne', 'shortform': 'PC'},
+    'BridgeM': {'region': 'Montreal South Shore', 'shortform': 'MSS'},
+    'BridgeSBS': {'region': 'Salaberry / Beauharnois / Suroît Region', 'shortform': 'SBS'}
 }
 
 BRIDGE_DETAILS = {
     'St Catharines': {
         'Queenston St.': {
-            'lat': 43.165824700918485, 
-            'lng': -79.19492604380804, 
+            'lat': 43.165824700918485,
+            'lng': -79.19492604380804,
             'number': '4'
         },
         # ... other bridges
@@ -257,7 +257,7 @@ python run_tests.py
 2. **Never remove request timeouts** - This caused the major stalling bug
 3. **Don't change Firebase schema** - iOS app depends on exact structure
 4. **Maintain concurrent execution** - Sequential would be 50x slower
-5. **Keep dual parser system** - Websites use different formats
+5. **Keep dual parser system** - Different regions use different JSON formats
 6. **Don't over-engineer** - This is a startup, ship fast
 
 ## Performance Metrics

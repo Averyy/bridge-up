@@ -1,9 +1,9 @@
-#scrapyer.py
+#scraper.py
 import firebase_admin
 from firebase_admin import credentials, initialize_app, firestore
 import requests
-from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
+from typing import Dict, List, Tuple, Optional, Any
 import pytz
 import unicodedata
 import re
@@ -14,7 +14,7 @@ import os
 import sys
 import concurrent.futures
 import threading
-from config import BRIDGE_URLS, BRIDGE_DETAILS
+from config import BRIDGE_KEYS, BRIDGE_DETAILS, OLD_JSON_ENDPOINT, NEW_JSON_ENDPOINT
 from cachetools import TTLCache
 from stats_calculator import calculate_bridge_statistics
 from loguru import logger
@@ -55,167 +55,326 @@ region_failures_lock = threading.Lock()
 # Caching TTL
 last_known_open_times = TTLCache(maxsize=1000, ttl=10800)  # 3 hours TTL for bridges
 
-def parse_date(date_str):
+# Smart endpoint caching - auto-discovers which endpoint works for each region
+endpoint_cache: Dict[str, str] = {}  # {'BridgeSCT': 'old', 'BridgeSBS': 'new'}
+endpoint_cache_lock = threading.Lock()
+
+def parse_date(date_str: str) -> Tuple[Optional[datetime], bool]:
+    """
+    Parse date/time strings from bridge data into timezone-aware datetime objects.
+
+    Handles multiple formats:
+    - datetime objects (returned as-is with timezone)
+    - Time-only strings like "18:15" or "18:15*" (asterisk = longer closure)
+    - ISO datetime strings like "2025-12-20T11:51:00" or "2025-12-20T11:51:00Z"
+    - Standard datetime strings like "2025-12-20 11:51:00"
+
+    Args:
+        date_str: The date/time string to parse
+
+    Returns:
+        Tuple of (datetime or None, bool indicating longer closure)
+    """
     if isinstance(date_str, datetime):
         return date_str.astimezone(TIMEZONE), False
 
-    # Check if the date string contains only time
-    time_match = re.match(r'(\d{2}:\d{2})(\*)?', date_str)
+    # Handle None or empty strings
+    if not date_str or date_str == '----':
+        return None, False
+
+    # Handle placeholder dates (API returns 0001-01-01 for null dates)
+    if '0001-01-01' in str(date_str):
+        return None, False
+
+    # Check for ISO datetime format (2025-12-20T11:51:00 or 2025-12-20T11:51:00Z)
+    if 'T' in str(date_str):
+        try:
+            # Handle Z suffix and +00:00 timezone
+            clean_str = str(date_str).replace('Z', '+00:00')
+            closure_time = datetime.fromisoformat(clean_str)
+            return closure_time.astimezone(TIMEZONE), False
+        except ValueError:
+            pass
+
+    # Check if the date string contains only time (18:15 or 18:15*)
+    time_match = re.match(r'(\d{2}:\d{2})(\*)?', str(date_str))
     if time_match:
         time_str, asterisk = time_match.groups()
         now = datetime.now(TIMEZONE)
         closure_time = TIMEZONE.localize(datetime.combine(now.date(), datetime.strptime(time_str, '%H:%M').time()))
-        
+
         # Handle * for longer closures
         longer = bool(asterisk)
         return closure_time, longer
-    
-    # Check if the date string is valid datetime
+
+    # Check if the date string is valid datetime (2025-12-20 11:51:00)
     try:
-        closure_time = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+        closure_time = datetime.strptime(str(date_str), '%Y-%m-%d %H:%M:%S')
         closure_time = TIMEZONE.localize(closure_time)
-        longer = False
-        return closure_time, longer
+        return closure_time, False
     except ValueError:
         logger.warning(f"Invalid date string: {date_str}")
         return None, False
-    
-def parse_old_style(soup):
-    current_time = datetime.now(TIMEZONE)
-    bridges = []
-    bridge_tables = soup.select('table#grey_box')
-    
-    for table in bridge_tables:
-        name = table.select_one('span.lgtextblack').text.strip()
-        status_span = table.select_one('span#status')
-        current_status = status_span.text.strip() if status_span else "Unknown"
-        
-        upcoming_closures = []
-        upcoming_span = table.select_one('span.lgtextblack10')
-        if upcoming_span:
-            arrival_text = upcoming_span.text.strip()
-            if "Next Arrival:" in arrival_text:
-                next_arrival = arrival_text.split("Next Arrival:")[1].strip()
-                if next_arrival != "----":
-                    closure_time, longer = parse_date(next_arrival)
-                    if closure_time:
-                        upcoming_closures.append({
-                            'type': 'Next Arrival',
-                            'time': closure_time,
-                            'longer': longer or '*' in next_arrival
-                        })
 
-        bridges.append({
-            'name': name,
-            'raw_status': current_status,
-            'upcoming_closures': upcoming_closures
-        })
 
-    # Parse planned closures (construction)
-    bridge_planned_closures = soup.select('div.closuretext')
-    for closure in bridge_planned_closures:
-        closure_text = closure.text.strip()
-        match = re.search(r'Bridge (\d+[A-Z]?) Closure\. Effective: (\w+ \d{1,2}, \d{4})(?: - (\w+ \d{1,2}, \d{4}))?, (\d{2}:\d{2} - \d{2}:\d{2})', closure_text)
-        if match:
-            bridge_number, start_date, end_date, time_range = match.groups()
-            start_time, end_time = time_range.split(' - ')
-            
-            end_date = end_date or start_date  # If end_date is None, use start_date
+def fetch_json_endpoint(url: str, timeout: int = 10, retries: int = 3) -> Optional[Dict[str, Any]]:
+    """
+    Fetch JSON data from endpoint with retry logic.
 
-            try:
-                start_date = datetime.strptime(start_date, '%b %d, %Y').date()
-                end_date = datetime.strptime(end_date, '%b %d, %Y').date()
-                start_time = datetime.strptime(start_time, '%H:%M').time()
-                end_time = datetime.strptime(end_time, '%H:%M').time()
-            except ValueError:
-                continue  # Skip invalid date formats
+    Args:
+        url: The full URL to fetch
+        timeout: Request timeout in seconds
+        retries: Number of retry attempts
 
-            for current_date in (start_date + timedelta(days=n) for n in range((end_date - start_date).days + 1)):
-                day_start = TIMEZONE.localize(datetime.combine(current_date, start_time))
-                day_end = TIMEZONE.localize(datetime.combine(current_date, end_time))
-
-                if day_end > current_time:
-                    planned_closure = {
-                        'type': 'Construction',
-                        'time': day_start,
-                        'end_time': day_end,
-                        'longer': False
-                    }
-
-                    for bridge in bridges:
-                        for region, bridge_info in BRIDGE_DETAILS.items():
-                            if bridge['name'] in bridge_info and bridge_info[bridge['name']].get('number') == bridge_number:
-                                bridge['upcoming_closures'].append(planned_closure)
-                                break
-                        else:
-                            continue
-                        break
-
-    return bridges
-
-def parse_new_style(soup):
-    bridges = []
-    bridge_items = soup.select('div.bridge-item')
-    
-    for item in bridge_items:
-        name = item.select_one('h3').text.strip()
-        status_elements = item.select('h1.status-title')
-        status = ' '.join([elem.text.strip() for elem in status_elements])
-        
-        upcoming_closures = []
-        lift_container = item.select_one('div.bridge-lift-container')
-        if lift_container:
-            lift_items = lift_container.select('p.item-data')
-            for lift_item in lift_items:
-                if "No anticipated bridge lifts" in lift_item.text:
-                    continue
-                lift_parts = lift_item.text.split(': ')
-                if len(lift_parts) == 2:
-                    lift_type, lift_time = lift_parts
-                    if lift_time != "----":
-                        closure_time, parsed_longer = parse_date(lift_time.strip())
-                        if closure_time:
-                            upcoming_closures.append({
-                                'type': lift_type.strip(),
-                                'time': closure_time,
-                                'longer': parsed_longer or '*' in lift_time
-                            })
-
-        bridges.append({
-            'name': name,
-            'raw_status': status,
-            'upcoming_closures': upcoming_closures
-        })
-    
-    return bridges
-
-def scrape_bridge_data(url, timeout=10, retries=3):
-    """Scrape bridge data with timeout and retry logic."""
-    soup = None
+    Returns:
+        Parsed JSON data as dict, or None on failure
+    """
     for attempt in range(retries):
         try:
             response = requests.get(url, timeout=timeout, headers={
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             })
             response.raise_for_status()
-            soup = BeautifulSoup(response.content, 'lxml')
-            break
-        except (requests.RequestException, requests.Timeout) as e:
+            return response.json()
+        except (requests.RequestException, requests.Timeout, ValueError) as e:
             if attempt == retries - 1:
-                logger.error(f"✗ {url}: {str(e)[:50]}...")
-                return []
-            logger.warning(f"Retry {attempt + 1}/{retries} for {url}")
+                logger.warning(f"Fetch failed {url[:50]}...: {str(e)[:50]}...")
+                return None
             continue
-    
-    if soup is None:
-        logger.error(f"✗ All attempts failed for {url}")
-        return []
-    
-    if soup.select_one('div.new-bridgestatus-container'):
-        return parse_new_style(soup)
+    return None
+
+
+def parse_old_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Parse JSON response from old API format.
+
+    This format is used by SCT, PC, and MSS regions. Contains:
+    - bridgeModelList: Live bridge status with vessel ETAs
+    - bridgeClosureList: Planned construction closures
+
+    Args:
+        json_data: Raw JSON response from API
+
+    Returns:
+        List of bridge dicts with {name, raw_status, upcoming_closures}
+    """
+    bridges = []
+    bridge_models = json_data.get('bridgeModelList', [])
+    bridge_closures = json_data.get('bridgeClosureList', [])
+
+    # Parse live bridge status
+    for bridge_model in bridge_models:
+        name = bridge_model.get('address', '').strip()
+        status = bridge_model.get('status', 'Unknown').strip()
+
+        # Extract vessel ETA if available (upcoming closure)
+        upcoming_closures = []
+        vessel_eta = bridge_model.get('vessel1ETA', '').strip()
+        if vessel_eta and vessel_eta != '----':
+            closure_time, longer = parse_date(vessel_eta)
+            if closure_time:
+                upcoming_closures.append({
+                    'type': 'Next Arrival',
+                    'time': closure_time,
+                    'longer': longer
+                })
+
+        bridges.append({
+            'name': name,
+            'raw_status': status,
+            'upcoming_closures': upcoming_closures
+        })
+
+    # Parse planned closures (construction)
+    current_time = datetime.now(TIMEZONE)
+    for closure in bridge_closures:
+        bridge_name = closure.get('bridgeAddress', '').strip()
+        closure_period = closure.get('closureP', '')
+        reason = closure.get('reason', 'Construction')
+
+        if not closure_period:
+            continue
+
+        try:
+            # Parse closureP format: "DEC 22, 2025 - DEC 23, 2025, 08:00 - 17:00"
+            # or single day: "DEC 22, 2025 - DEC 22, 2025, 09:00 - 12:00"
+            import re
+            match = re.match(
+                r'([A-Z]{3} \d{1,2}, \d{4}) - ([A-Z]{3} \d{1,2}, \d{4}), (\d{2}:\d{2}) - (\d{2}:\d{2})',
+                closure_period
+            )
+            if not match:
+                logger.warning(f"Failed to match closure pattern: {closure_period}")
+                continue
+
+            start_date_str, end_date_str, start_time_str, end_time_str = match.groups()
+
+            # Parse dates: "DEC 22, 2025"
+            start_date = datetime.strptime(start_date_str, '%b %d, %Y')
+            end_date = datetime.strptime(end_date_str, '%b %d, %Y')
+
+            # Parse times and combine with dates
+            start_hour, start_min = map(int, start_time_str.split(':'))
+            end_hour, end_min = map(int, end_time_str.split(':'))
+
+            start_time = TIMEZONE.localize(start_date.replace(hour=start_hour, minute=start_min))
+            end_time = TIMEZONE.localize(end_date.replace(hour=end_hour, minute=end_min))
+
+            # Only add future or ongoing closures
+            if end_time > current_time:
+                planned_closure = {
+                    'type': 'Construction',
+                    'time': start_time,
+                    'end_time': end_time,
+                    'longer': False
+                }
+
+                # Add to matching bridge
+                for bridge in bridges:
+                    if bridge['name'] == bridge_name:
+                        bridge['upcoming_closures'].append(planned_closure)
+                        break
+        except (ValueError, AttributeError) as e:
+            logger.warning(f"Failed to parse closure closureP: {closure_period} - {e}")
+            continue
+
+    return bridges
+
+
+def parse_new_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Parse JSON response from new API format.
+
+    This format is used by SBS region. Contains:
+    - bridgeStatusList: Bridge status with lift list and maintenance list
+
+    Args:
+        json_data: Raw JSON response from API
+
+    Returns:
+        List of bridge dicts with {name, raw_status, upcoming_closures}
+    """
+    bridges = []
+    bridge_statuses = json_data.get('bridgeStatusList', [])
+    current_time = datetime.now(TIMEZONE)
+
+    for bridge_status in bridge_statuses:
+        name = bridge_status.get('address', '').strip()
+
+        # New format has status3 as the combined status
+        status = bridge_status.get('status3', '').strip()
+        if not status:
+            status = bridge_status.get('status', 'Unknown').strip()
+
+        upcoming_closures = []
+
+        # Parse bridge lifts (vessel arrivals)
+        bridge_lifts = bridge_status.get('bridgeLiftList', [])
+        for lift in bridge_lifts:
+            eta_str = lift.get('eta', '').strip()
+            if eta_str:
+                closure_time, _ = parse_date(eta_str)
+
+                # Only add future closures
+                if closure_time and closure_time > current_time:
+                    lift_type = lift.get('type', 'a')
+                    upcoming_closures.append({
+                        'type': 'Next Arrival' if lift_type == 'a' else 'Commercial Vessel',
+                        'time': closure_time,
+                        'longer': False  # New format doesn't have asterisk notation
+                    })
+
+        # Parse maintenance closures
+        maintenance_list = bridge_status.get('bridgeMaintenanceList', [])
+        for maintenance in maintenance_list:
+            close_date_str = maintenance.get('closeDateFr', '')
+            close_date_to = maintenance.get('closeDateTo', '')
+
+            if not close_date_str:
+                continue
+
+            try:
+                start_time, _ = parse_date(close_date_str)
+
+                end_time = None
+                if close_date_to:
+                    end_time, _ = parse_date(close_date_to)
+
+                # Only add future closures
+                if start_time and (not end_time or end_time > current_time):
+                    upcoming_closures.append({
+                        'type': 'Construction',
+                        'time': start_time,
+                        'end_time': end_time,
+                        'longer': False
+                    })
+            except (ValueError, AttributeError) as e:
+                logger.warning(f"Failed to parse maintenance date: {close_date_str}")
+                continue
+
+        bridges.append({
+            'name': name,
+            'raw_status': status,
+            'upcoming_closures': upcoming_closures
+        })
+
+    return bridges
+
+
+def scrape_bridge_data(bridge_key: str, timeout: int = 10, retries: int = 3) -> List[Dict[str, Any]]:
+    """
+    Fetch bridge data from JSON API with smart endpoint caching.
+
+    Tries cached endpoint first, falls back to other endpoint if needed.
+    Auto-discovers and remembers which endpoint works for each region.
+
+    Args:
+        bridge_key: The bridge region key (e.g., 'BridgeSCT')
+        timeout: Request timeout in seconds
+        retries: Number of retry attempts per endpoint
+
+    Returns:
+        List of bridge dicts with {name, raw_status, upcoming_closures}
+    """
+    # Get cached endpoint preference
+    with endpoint_cache_lock:
+        cached = endpoint_cache.get(bridge_key, 'old')
+
+    # Define endpoint order based on cache
+    if cached == 'new':
+        endpoints = [
+            ('new', NEW_JSON_ENDPOINT, parse_new_json, 'bridgeStatusList'),
+            ('old', OLD_JSON_ENDPOINT, parse_old_json, 'bridgeModelList')
+        ]
     else:
-        return parse_old_style(soup)
-    
+        endpoints = [
+            ('old', OLD_JSON_ENDPOINT, parse_old_json, 'bridgeModelList'),
+            ('new', NEW_JSON_ENDPOINT, parse_new_json, 'bridgeStatusList')
+        ]
+
+    for endpoint_type, base_url, parser, data_key in endpoints:
+        url = base_url + bridge_key
+        data = fetch_json_endpoint(url, timeout, retries)
+
+        if data and data.get(data_key):
+            # Update cache on success
+            with endpoint_cache_lock:
+                if endpoint_cache.get(bridge_key) != endpoint_type:
+                    logger.info(f"{bridge_key}: Discovered {endpoint_type} endpoint works")
+                    endpoint_cache[bridge_key] = endpoint_type
+            return parser(data)
+
+        # Check if old endpoint returned new format
+        if data and endpoint_type == 'old' and data.get('bridgeStatusList'):
+            with endpoint_cache_lock:
+                endpoint_cache[bridge_key] = 'new'
+            logger.info(f"{bridge_key}: Old endpoint returned new format, caching")
+            return parse_new_json(data)
+
+    logger.error(f"✗ {bridge_key}: No data from either endpoint")
+    return []
+
+
 def interpret_bridge_status(bridge_data):
     name = bridge_data['name']
     raw_status = bridge_data['raw_status'].lower()
@@ -347,13 +506,9 @@ def daily_statistics_update():
         
         # Update statistics in the main bridge document
         updated_batch.update(doc_ref, {'statistics': stats})
-        
-        # Commit the batch for this bridge
-        if operation_count > 0:
-            # print(f"Committing batch with {operation_count} delete operations and 1 update operation")
-            updated_batch.commit()
-        # else:
-            # print("No changes to commit for this bridge")
+
+        # Always commit - statistics update needs to be saved
+        updated_batch.commit()
     
     # print("Daily statistics update completed")
 
@@ -452,76 +607,94 @@ def update_firestore(bridges, region, shortform):
             raise
 
 # Can trigger externally as well:
-def process_single_region(url_info_pair):
-    """Process a single region with smart backoff that never gives up"""
-    url, info = url_info_pair
+def process_single_region(bridge_key_info_pair: Tuple[str, Dict[str, str]]) -> Tuple[bool, int]:
+    """
+    Process a single region with smart backoff that never gives up.
+
+    Args:
+        bridge_key_info_pair: Tuple of (bridge_key, info_dict) where info_dict
+                             contains 'region' and 'shortform' keys
+
+    Returns:
+        Tuple of (success: bool, bridge_count: int)
+    """
+    bridge_key, info = bridge_key_info_pair
     region = info['region']
-    
+
     # Check if we're still in backoff period - THREAD SAFE
     with region_failures_lock:
-        if url in region_failures:
-            failure_count, next_retry = region_failures[url]
+        if bridge_key in region_failures:
+            failure_count, next_retry = region_failures[bridge_key]
             if datetime.now() < next_retry:
                 wait_seconds = (next_retry - datetime.now()).total_seconds()
                 logger.info(f"⏳ {region}: Still waiting {wait_seconds:.0f}s (attempt #{failure_count})")
                 return (False, 0)
-    
+
     try:
-        bridges = scrape_bridge_data(url)
+        bridges = scrape_bridge_data(bridge_key)
         if bridges:
             update_firestore(bridges, info['region'], info['shortform'])
-            
+
             # Success - reset failure count - THREAD SAFE
             with region_failures_lock:
-                if url in region_failures:
-                    failure_count = region_failures[url][0]
+                if bridge_key in region_failures:
+                    failure_count = region_failures[bridge_key][0]
                     logger.info(f"✓ {region}: {len(bridges)} (recovered after {failure_count} failures)")
-                    del region_failures[url]  # Clear failures
+                    del region_failures[bridge_key]  # Clear failures
                 else:
                     logger.info(f"✓ {region}: {len(bridges)}")
-            
+
             return (True, len(bridges))
         else:
             # Empty response counts as failure
-            handle_region_failure(url, region, "No data")
+            handle_region_failure(bridge_key, region, "No data")
             return (False, 0)
-            
+
     except Exception as e:
-        handle_region_failure(url, region, str(e)[:30] + "...")
+        handle_region_failure(bridge_key, region, str(e)[:30] + "...")
         return (False, 0)
 
-def handle_region_failure(url, region, error_msg):
-    """Update failure tracking with next retry time - THREAD SAFE"""
+
+def handle_region_failure(bridge_key: str, region: str, error_msg: str) -> None:
+    """
+    Update failure tracking with next retry time - THREAD SAFE.
+
+    Args:
+        bridge_key: The bridge region key (e.g., 'BridgeSCT')
+        region: Human-readable region name
+        error_msg: Error message to log
+    """
     with region_failures_lock:
-        failure_count = region_failures.get(url, (0, None))[0] + 1
-        
+        failure_count = region_failures.get(bridge_key, (0, None))[0] + 1
+
         # Calculate next retry time (exponential backoff, max 5 minutes)
         wait_seconds = min(2 ** failure_count, 300)
         next_retry = datetime.now() + timedelta(seconds=wait_seconds)
-        
-        region_failures[url] = (failure_count, next_retry)
-    
+
+        region_failures[bridge_key] = (failure_count, next_retry)
+
     if failure_count == 1:
         logger.error(f"✗ {region}: {error_msg}")
     else:
         logger.error(f"✗ {region}: {error_msg} (attempt #{failure_count}, retry in {wait_seconds}s)")
 
-def scrape_and_update():
+
+def scrape_and_update() -> None:
     """Main scraping function with concurrent execution and error handling."""
     start_time = datetime.now(TIMEZONE)
     logger.info("Scraping...")
-    
+
     success_count = 0
     fail_count = 0
-    
+
     # Use ThreadPoolExecutor for concurrent scraping (I/O bound operations)
     with concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="BridgeScraper") as executor:
         # Submit all scraping tasks concurrently
         future_to_region = {
-            executor.submit(process_single_region, (url, info)): info['region'] 
-            for url, info in BRIDGE_URLS.items()
+            executor.submit(process_single_region, (bridge_key, info)): info['region']
+            for bridge_key, info in BRIDGE_KEYS.items()
         }
-        
+
         # Collect results with timeout
         for future in concurrent.futures.as_completed(future_to_region, timeout=25):
             region = future_to_region[future]
@@ -534,7 +707,7 @@ def scrape_and_update():
             except Exception as e:
                 logger.error(f"✗ {region}: Unexpected error")
                 fail_count += 1
-    
+
     end_time = datetime.now(TIMEZONE)
     duration = (end_time - start_time).total_seconds()
     logger.info(f"Done in {duration:.1f}s - All: {success_count} ✓, {fail_count} ✗")

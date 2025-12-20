@@ -39,7 +39,7 @@ def main():
     print("Testing critical business logic only - guardrails not roadblocks")
     
     tests = [
-        ("tests/test_parsers.py", "Parser Tests (HTML parsing logic)"),
+        ("tests/test_parsers.py", "Parser Tests (JSON parsing logic)"),
         ("tests/test_statistics.py", "Statistics Tests (prediction calculations)"),
         ("tests/test_status_edge_cases.py", "Status Edge Cases (realistic scenarios)"),
         ("tests/test_configuration.py", "Configuration Tests (deployment safety)"),

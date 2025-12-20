@@ -1,11 +1,10 @@
 #requirements.txt
 firebase-admin
 requests
-beautifulsoup4
+python-dotenv
 pytz
 flask
 apscheduler
 waitress
-lxml
 cachetools
 loguru

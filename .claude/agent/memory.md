@@ -43,7 +43,7 @@
 ### Critical Code Patterns
 - Firebase writes only on actual status changes (cost optimization)
 - In-memory caching with `last_known_state` dictionary
-- Dual parser system (old/new website formats)
+- Dual parser system (old/new JSON API formats with smart caching)
 - Status normalization for iOS app compatibility
 
 ## Session: December 2025 - Comprehensive Test Suite Implementation
@@ -52,7 +52,7 @@
 **Purpose**: Protect against regressions when updating/changing code
 
 **Implemented Tests**:
-1. `tests/test_parsers.py` - Core HTML parsing (12 tests)
+1. `tests/test_parsers.py` - Core JSON parsing (20+ tests)
 2. `tests/test_statistics.py` - Prediction calculations (9 tests)  
 3. `tests/test_status_edge_cases.py` - Status interpretation (7 tests)
 4. `tests/test_configuration.py` - Config validation (5 tests)
@@ -120,3 +120,38 @@ with state_lock:
 - Add protection without changing core functionality
 - Simple solutions over complex thread-safe data structures
 - Test improvements don't break existing behavior
+
+## Session: December 20, 2025 - JSON API Migration
+
+### Major Change: HTML Scraping → JSON API
+**Problem**: HTML scraping was fragile and broke when website changed format.
+
+**Solution**: Migrated to direct JSON API consumption:
+- Discovered two undocumented JSON endpoints (old and new formats)
+- Implemented smart endpoint caching (auto-discovers which format each region uses)
+- Removed BeautifulSoup/lxml dependencies
+- Added python-dotenv for secure endpoint configuration
+
+### Key Implementation Details
+- **Endpoints stored in .env** (gitignored, never committed)
+- **Smart caching**: First scrape discovers working endpoint, subsequent scrapes use cached choice
+- **Dual parser system**: `parse_old_json()` for SCT/PC/MSS, `parse_new_json()` for SBS
+- **Closure parsing**: Construction from `closureP` field, vessel arrivals from `bridgeLiftList`
+
+### Schedule Change
+- Daytime: 30s → 20s intervals
+- Nighttime: 60s → 30s intervals
+
+### Bug Fixed
+- `daily_statistics_update()` wasn't committing stats when no history entries needed deletion
+
+### Tests Added
+- `test_construction_closure_parsing` - Verifies closureP regex parsing
+- `test_bridge_lift_list_parsing` - Verifies vessel arrival parsing
+
+### Files Modified
+- `scraper.py` - Major refactor (JSON parsing, removed HTML)
+- `config.py` - BRIDGE_URLS → BRIDGE_KEYS, loads endpoints from .env
+- `requirements.txt` - Removed beautifulsoup4/lxml, added python-dotenv
+- `start_flask.py`, `start_waitress.py` - Updated intervals
+- Tests and documentation updated

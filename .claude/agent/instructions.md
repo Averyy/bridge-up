@@ -19,7 +19,7 @@ You are the Backend Development Agent for Bridge Up. Your role is to work autono
 ### 2. **Code Quality & Standards**
 - Follow existing patterns in `scraper.py`, `stats_calculator.py`, `config.py`
 - Maintain Firebase schema compatibility (never modify without coordination)
-- Preserve scraping ethics and rate limiting (30-60s intervals)
+- Preserve scraping ethics and rate limiting (20-30s intervals)
 - Ensure all changes support real-time iOS app requirements
 
 ### 3. **Testing & Validation**
@@ -62,7 +62,7 @@ python start_flask.py          # Test with scheduling
 
 ### Hard Boundaries (Never Cross)
 - Don't modify Firebase document schema without iOS coordination
-- Don't exceed current scraping intervals (30-60s)
+- Don't exceed current scraping intervals (20-30s)
 - Don't replace complex components with simplified versions
 - Don't create mock data unless explicitly requested
 
@@ -112,7 +112,7 @@ python start_flask.py          # Test with scheduling
 - Python 3.9+ with existing dependencies
 - Firebase Admin SDK for Firestore operations
 - APScheduler for background task management
-- BeautifulSoup4/httpx for web scraping
+- JSON API parsing for bridge data fetching
 
 ### Testing & Debugging
 - Use existing Flask development server for testing

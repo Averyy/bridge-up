@@ -17,14 +17,14 @@ def scrape_and_update_task():
 
 def start_scheduler():
     if not scheduler.running:
-        # Every 30 seconds from 6:00 AM to 9:59 PM
+        # Every 20 seconds from 6:00 AM to 9:59 PM
         scheduler.add_job(scrape_and_update_task, 'cron',
-                          hour='6-21', minute='*', second='0,30',
+                          hour='6-21', minute='*', second='0,20,40',
                           misfire_grace_time=60, max_instances=3,
                           coalesce=True, replace_existing=True)
-        # Every 60 seconds from 10:00 PM to 5:59 AM
+        # Every 30 seconds from 10:00 PM to 5:59 AM
         scheduler.add_job(scrape_and_update_task, 'cron',
-                          hour='22-23,0-5', minute='*', second='0',
+                          hour='22-23,0-5', minute='*', second='0,30',
                           misfire_grace_time=120, max_instances=3,
                           coalesce=True, replace_existing=True)
         # Daily statistics update at 3 AM

@@ -89,7 +89,7 @@ The status mapping is implemented in `interpret_bridge_status()` function in `sc
 
 ## Scraping Ethics & Requirements
 
-- **Respect rate limits**: Current 30-60 second intervals are already aggressive
+- **Respect rate limits**: Current 20-30 second intervals are already aggressive
 - **Use random User-Agent headers** to avoid automated detection
 - **Handle failures gracefully** - temporary site issues should not crash the system
 - **Monitor for IP blocking** and implement backoff strategies
@@ -126,7 +126,7 @@ The status mapping is implemented in `interpret_bridge_status()` function in `sc
 ## Scheduling System Rules
 
 - Maintain existing APScheduler setup in `start_flask.py` and `start_waitress.py`
-- Preserve day/night interval differences (30s vs 60s)
+- Preserve day/night interval differences (20s vs 30s)
 - Keep 4 AM daily statistics recalculation
 - Handle timezone correctly for schedule reliability
 - Implement proper shutdown of schedulers
@@ -170,12 +170,12 @@ python run_tests.py
 ```
 
 Implemented tests cover:
-- ✅ Core parsing logic (old/new HTML formats)
+- ✅ Core parsing logic (old/new JSON API formats)
 - ✅ Statistics calculations (predictions)
 - ✅ Status interpretation (edge cases)
 - ✅ Configuration validation
 
-See `TESTING.md` for details. 
+Run `python run_tests.py` to execute all tests. 
 
 ## Error Handling Standards
 

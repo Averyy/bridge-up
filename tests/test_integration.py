@@ -15,54 +15,55 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import time
 import threading
 from unittest.mock import patch
-from scraper import process_single_region, region_failures, logger, BRIDGE_URLS
+from scraper import process_single_region, region_failures, logger
+from config import BRIDGE_KEYS
 
 def test_concurrent_with_failures():
     """Test concurrent scraping with simulated failures"""
     print("\n=== Testing Concurrent Scraping with Failures ===")
-    
+
     # Create a mock that fails first 2 times, then succeeds
     call_counts = {}
     original_scrape = __import__('scraper', fromlist=['scrape_bridge_data']).scrape_bridge_data
-    
-    def mock_scrape(url, timeout=10, retries=3):
-        if url not in call_counts:
-            call_counts[url] = 0
-        call_counts[url] += 1
-        
-        # Fail first 2 attempts for one specific URL
-        if 'BridgePC' in url and call_counts[url] <= 2:
+
+    def mock_scrape(bridge_key, timeout=10, retries=3):
+        if bridge_key not in call_counts:
+            call_counts[bridge_key] = 0
+        call_counts[bridge_key] += 1
+
+        # Fail first 2 attempts for one specific region
+        if bridge_key == 'BridgePC' and call_counts[bridge_key] <= 2:
             raise Exception("Simulated network failure")
-        
-        return original_scrape(url, timeout, retries)
-    
+
+        return original_scrape(bridge_key, timeout, retries)
+
     # Patch and run
     with patch('scraper.scrape_bridge_data', side_effect=mock_scrape):
         # Clear any existing failures
         region_failures.clear()
-        
+
         # Run scraping 3 times with 5 second gaps
         for i in range(3):
             print(f"\n--- Run {i+1} ---")
             threads = []
-            
-            for url, info in BRIDGE_URLS.items():
-                t = threading.Thread(target=process_single_region, args=((url, info),))
+
+            for bridge_key, info in BRIDGE_KEYS.items():
+                t = threading.Thread(target=process_single_region, args=((bridge_key, info),))
                 threads.append(t)
                 t.start()
-            
+
             for t in threads:
                 t.join()
-            
+
             # Show failure status
             if region_failures:
                 print("\nFailure tracking:")
-                for url, (count, next_retry) in region_failures.items():
+                for bridge_key, (count, next_retry) in region_failures.items():
                     wait = (next_retry - __import__('datetime').datetime.now()).total_seconds()
-                    print(f"  {url}: {count} failures, retry in {wait:.0f}s")
-            
+                    print(f"  {bridge_key}: {count} failures, retry in {wait:.0f}s")
+
             time.sleep(5)
-    
+
     print("\n✅ Integration test complete!")
 
 def test_logging_output():

@@ -5,7 +5,7 @@
 
 Real-time bridge status monitoring for the St. Lawrence Seaway. Scrapes bridge data, calculates predictive statistics, and serves it via Firestore.
 
-⚠️ **Hobby project** - Depends entirely on St Lawrence Seaway websites. If they change HTML or block access, it breaks. No warranty provided.
+⚠️ **Hobby project** - Depends entirely on St Lawrence Seaway API. If they change the API or block access, it breaks. No warranty provided.
 
 ## Features
 - 👀 Monitors bridge status from 4 regions (13 bridges total)
@@ -32,8 +32,12 @@ Real-time bridge status monitoring for the St. Lawrence Seaway. Scrapes bridge d
 # Pull from Docker Hub
 docker pull averyyyy/bridge-up:latest
 
-# Run with your Firebase credentials
-docker run -p 5000:5000 -v /path/to/firebase-auth.json:/app/data/firebase-auth.json averyyyy/bridge-up:latest
+# Run with your Firebase credentials and environment variables
+docker run -p 5000:5000 \
+  -v /path/to/firebase-auth.json:/app/data/firebase-auth.json \
+  -e OLD_JSON_ENDPOINT="your-endpoint-here" \
+  -e NEW_JSON_ENDPOINT="your-endpoint-here" \
+  averyyyy/bridge-up:latest
 ```
 
 ### 🔧 Local Development
@@ -44,6 +48,7 @@ git clone https://github.com/averyyyy/bridge-up-backend
 cd bridge-up-backend
 pip install -r requirements.txt
 
+# Create .env with API endpoints (contact maintainer for values)
 # Add firebase-auth.json to project root
 # Run development server
 python start_flask.py
@@ -64,8 +69,8 @@ St. Lawrence Seaway Websites → Python Scraper → Firebase → iOS App
 - `start_waitress.py` - Production server
 
 ### Schedule
-- 🌞 Scrapes and updates bridge data every 30 seconds from 6:00 AM to 9:59 PM
-- 🌙 Scrapes and updates bridge data every 60 seconds from 10:00 PM to 5:59 AM
+- 🌞 Scrapes and updates bridge data every 20 seconds from 6:00 AM to 9:59 PM
+- 🌙 Scrapes and updates bridge data every 30 seconds from 10:00 PM to 5:59 AM
 - 🧮 Runs daily statistics update at 4 AM
 
 ## Testing
@@ -77,7 +82,7 @@ St. Lawrence Seaway Websites → Python Scraper → Firebase → iOS App
 python run_tests.py
 
 # Individual test files
-python tests/test_parsers.py          # HTML parsing logic
+python tests/test_parsers.py          # JSON parsing logic
 python tests/test_statistics.py       # Prediction calculations
 python tests/test_status_edge_cases.py # Status interpretation
 python tests/test_configuration.py    # Config validation
@@ -87,7 +92,7 @@ python tests/test_network_backoff.py  # Network failure handling
 python tests/test_logging.py          # Logger configuration
 ```
 
-The test suite protects core functionality and edge cases. See `TESTING.md` for details.
+The test suite protects core functionality and edge cases.
 
 ## Contributing
 

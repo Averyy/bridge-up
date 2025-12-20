@@ -12,19 +12,19 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
-from config import BRIDGE_URLS, BRIDGE_DETAILS
+from config import BRIDGE_KEYS, BRIDGE_DETAILS
 
 class TestConfiguration(unittest.TestCase):
-    
+
     def test_bridge_configuration_completeness(self):
         """Verify all bridges have required configuration"""
-        for url, info in BRIDGE_URLS.items():
+        for bridge_key, info in BRIDGE_KEYS.items():
             region = info['region']
-            
+
             # Check region exists in BRIDGE_DETAILS
-            self.assertIn(region, BRIDGE_DETAILS, 
-                         f"Region '{region}' from BRIDGE_URLS not found in BRIDGE_DETAILS")
-            
+            self.assertIn(region, BRIDGE_DETAILS,
+                         f"Region '{region}' from BRIDGE_KEYS not found in BRIDGE_DETAILS")
+
             # Check this region has bridges defined
             self.assertGreater(len(BRIDGE_DETAILS[region]), 0,
                               f"Region '{region}' has no bridges defined")

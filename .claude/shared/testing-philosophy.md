@@ -9,8 +9,8 @@ We test what could fail silently and impact users. We don't test infrastructure 
 ## What We Test ✅
 
 **Core Business Logic**:
-- HTML parsing functions (both old/new formats)
-- Status interpretation logic  
+- JSON parsing functions (old and new API formats)
+- Status interpretation logic
 - Statistics calculations (predictions)
 - Configuration validation
 

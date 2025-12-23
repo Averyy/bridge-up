@@ -191,6 +191,7 @@ def parse_old_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         bridge_name = closure.get('bridgeAddress', '').strip()
         closure_period = closure.get('closureP', '')
         reason = closure.get('reason', 'Construction')
+        is_continuous = closure.get('continuousHour', 'Y') == 'Y'
 
         if not closure_period:
             continue
@@ -213,27 +214,50 @@ def parse_old_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
             start_date = datetime.strptime(start_date_str, '%b %d, %Y')
             end_date = datetime.strptime(end_date_str, '%b %d, %Y')
 
-            # Parse times and combine with dates
+            # Parse times
             start_hour, start_min = map(int, start_time_str.split(':'))
             end_hour, end_min = map(int, end_time_str.split(':'))
 
-            start_time = TIMEZONE.localize(start_date.replace(hour=start_hour, minute=start_min))
-            end_time = TIMEZONE.localize(end_date.replace(hour=end_hour, minute=end_min))
+            if is_continuous:
+                # Continuous closure: single entry from start datetime to end datetime
+                start_time = TIMEZONE.localize(start_date.replace(hour=start_hour, minute=start_min))
+                end_time = TIMEZONE.localize(end_date.replace(hour=end_hour, minute=end_min))
 
-            # Only add future or ongoing closures
-            if end_time > current_time:
-                planned_closure = {
-                    'type': 'Construction',
-                    'time': start_time,
-                    'end_time': end_time,
-                    'longer': False
-                }
+                if end_time > current_time:
+                    planned_closure = {
+                        'type': 'Construction',
+                        'time': start_time,
+                        'end_time': end_time,
+                        'longer': False
+                    }
 
-                # Add to matching bridge
-                for bridge in bridges:
-                    if bridge['name'] == bridge_name:
-                        bridge['upcoming_closures'].append(planned_closure)
-                        break
+                    for bridge in bridges:
+                        if bridge['name'] == bridge_name:
+                            bridge['upcoming_closures'].append(planned_closure)
+                            break
+            else:
+                # Non-continuous: daily time window repeated for each day in range
+                # e.g., "DEC 22 - DEC 23, 08:00 - 17:00" means 8am-5pm on Dec 22 AND 8am-5pm on Dec 23
+                current_date = start_date
+                while current_date <= end_date:
+                    day_start = TIMEZONE.localize(current_date.replace(hour=start_hour, minute=start_min))
+                    day_end = TIMEZONE.localize(current_date.replace(hour=end_hour, minute=end_min))
+
+                    # Only add future or ongoing closures
+                    if day_end > current_time:
+                        planned_closure = {
+                            'type': 'Construction',
+                            'time': day_start,
+                            'end_time': day_end,
+                            'longer': False
+                        }
+
+                        for bridge in bridges:
+                            if bridge['name'] == bridge_name:
+                                bridge['upcoming_closures'].append(planned_closure)
+                                break
+
+                    current_date += timedelta(days=1)
         except (ValueError, AttributeError) as e:
             logger.warning(f"Failed to parse closure closureP: {closure_period} - {e}")
             continue

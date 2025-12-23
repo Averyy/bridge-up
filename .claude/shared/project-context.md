@@ -261,7 +261,7 @@ python run_tests.py
 6. **Don't over-engineer** - This is a startup, ship fast
 
 ## Performance Metrics
-- **Scraping Speed**: ~0.7 seconds for all 4 regions (13 bridges total)
+- **Scraping Speed**: ~0.7 seconds for all 5 regions (15 bridges total)
 - **Test Execution**: <1 second for full test suite
 - **Firebase Writes**: Only on status changes (cost optimization)
 - **History Management**: Auto-cleanup keeps max 300 entries per bridge

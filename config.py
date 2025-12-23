@@ -26,11 +26,10 @@ BRIDGE_KEYS = {
         'region': 'Montreal South Shore',
         'shortform': 'MSS'
     },
-    # It's just CP Rail bridges, not vehicles/public crossings
-    # 'BridgeK': {
-    #     'region': 'Kahnawake',
-    #     'shortform': 'K'
-    # },
+    'BridgeK': {
+        'region': 'Kahnawake',
+        'shortform': 'K'
+    },
     'BridgeSBS': {
         'region': 'Salaberry / Beauharnois / Suroît Region',
         'shortform': 'SBS'
@@ -55,11 +54,10 @@ BRIDGE_DETAILS = {
         'Victoria Bridge Upstream (Cycling Path)': {'lat': 45.49234276250341, 'lng': -73.5168207947014},
         'Sainte-Catherine/RécréoParc Bridge': {'lat': 45.4080536309029, 'lng': -73.56725875784645}
     },
-    # K is just CP railway bridges, not worth logging for consumers
-    # 'Kahnawake': {
-    #     'CP Railway Bridge 7B': {'lat': 45.411294284530854, 'lng': -73.66214553001862},
-    #     'CP Railway Bridge 7A': {'lat': 45.4112624483958, 'lng': -73.66203405574073}
-    # },
+    'Kahnawake': {
+        'CP Railway Bridge 7A': {'lat': 45.411294284530854, 'lng': -73.66214553001862},
+        'CP Railway Bridge 7B': {'lat': 45.4112624483958, 'lng': -73.66203405574073}
+    },
     'Salaberry / Beauharnois / Suroît Region': {
         'St-Louis-de-Gonzague Bridge': {'lat': 45.232607447464225, 'lng': -74.00297750906498},
         'Larocque Bridge (Salaberry-de-Valleyfield)': {'lat': 45.22588000852819, 'lng': -74.11479220520631}

@@ -8,7 +8,7 @@ Real-time bridge status monitoring for the St. Lawrence Seaway. Scrapes bridge d
 ⚠️ **Hobby project** - Depends entirely on St Lawrence Seaway API. If they change the API or block access, it breaks. No warranty provided.
 
 ## Features
-- 👀 Monitors bridge status from 4 regions (13 bridges total)
+- 👀 Monitors bridge status from 5 regions (15 bridges total)
 - 🚀 Concurrent scraping - all bridges in 0.7 seconds
 - 📊 Calculates predictive statistics from historical data
 - 🔄 Real-time updates every 30-60 seconds

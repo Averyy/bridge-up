@@ -103,7 +103,8 @@ class TestParseOldJson(unittest.TestCase):
             'bridgeClosureList': [
                 {
                     'bridgeAddress': 'Main St.',
-                    'closureP': 'DEC 22, 2025 - DEC 22, 2025, 09:00 - 12:00',
+                    'closureP': 'DEC 22, 2026 - DEC 22, 2026, 09:00 - 12:00',
+                    'continuousHour': 'N',
                     'reason': 'Bridge / road maintenance'
                 }
             ]
@@ -115,10 +116,68 @@ class TestParseOldJson(unittest.TestCase):
         self.assertEqual(len(result[0]['upcoming_closures']), 1)
         closure = result[0]['upcoming_closures'][0]
         self.assertEqual(closure['type'], 'Construction')
+        self.assertEqual(closure['time'].year, 2026)
         self.assertEqual(closure['time'].month, 12)
         self.assertEqual(closure['time'].day, 22)
         self.assertEqual(closure['time'].hour, 9)
         self.assertEqual(closure['end_time'].hour, 12)
+
+    def test_multiday_noncontinuous_closure(self):
+        """Test that non-continuous multi-day closures create separate daily entries"""
+        json_data = {
+            'bridgeModelList': [
+                {'address': 'Carlton St.', 'status': 'Available', 'vessel1ETA': '----'}
+            ],
+            'bridgeClosureList': [
+                {
+                    'bridgeAddress': 'Carlton St.',
+                    'closureP': 'DEC 22, 2026 - DEC 24, 2026, 08:00 - 17:00',
+                    'continuousHour': 'N',
+                    'reason': 'Bridge / road maintenance'
+                }
+            ]
+        }
+
+        result = parse_old_json(json_data)
+
+        # Should create 3 separate closures (Dec 22, 23, 24)
+        self.assertEqual(len(result[0]['upcoming_closures']), 3)
+
+        closures = result[0]['upcoming_closures']
+        # Each closure should be 8am-5pm on its respective day
+        for i, day in enumerate([22, 23, 24]):
+            self.assertEqual(closures[i]['time'].day, day)
+            self.assertEqual(closures[i]['time'].hour, 8)
+            self.assertEqual(closures[i]['end_time'].day, day)
+            self.assertEqual(closures[i]['end_time'].hour, 17)
+
+    def test_continuous_closure(self):
+        """Test that continuous closures create single entry spanning full period"""
+        json_data = {
+            'bridgeModelList': [
+                {'address': 'Test Bridge', 'status': 'Available', 'vessel1ETA': '----'}
+            ],
+            'bridgeClosureList': [
+                {
+                    'bridgeAddress': 'Test Bridge',
+                    'closureP': 'DEC 22, 2026 - DEC 24, 2026, 08:00 - 17:00',
+                    'continuousHour': 'Y',
+                    'reason': 'Emergency repair'
+                }
+            ]
+        }
+
+        result = parse_old_json(json_data)
+
+        # Should create 1 continuous closure
+        self.assertEqual(len(result[0]['upcoming_closures']), 1)
+
+        closure = result[0]['upcoming_closures'][0]
+        # Single entry from Dec 22 8am to Dec 24 5pm
+        self.assertEqual(closure['time'].day, 22)
+        self.assertEqual(closure['time'].hour, 8)
+        self.assertEqual(closure['end_time'].day, 24)
+        self.assertEqual(closure['end_time'].hour, 17)
 
 
 class TestParseNewJson(unittest.TestCase):
@@ -168,7 +227,7 @@ class TestParseNewJson(unittest.TestCase):
                     'address': 'Test Bridge',
                     'status3': 'Available',
                     'bridgeLiftList': [
-                        {'id': 123, 'type': 'a', 'eta': '2025-12-20T14:30:00'}
+                        {'id': 123, 'type': 'a', 'eta': '2026-12-20T14:30:00'}
                     ],
                     'bridgeMaintenanceList': []
                 }

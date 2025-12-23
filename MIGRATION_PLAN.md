@@ -71,12 +71,12 @@ Simple JSON files (no database needed):
 
 ```
 data/
-├── bridges.json           # Live status + statistics for all 13 bridges
+├── bridges.json           # Live status + statistics for all 15 bridges
 └── history/
     ├── SCT_CarltonSt.json
     ├── SCT_QueenstonSt.json
     ├── PC_MainSt.json
-    └── ... (13 files, one per bridge, max 300 entries each)
+    └── ... (15 files, one per bridge, max 300 entries each)
 ```
 
 ### bridges.json structure (confirmed with iOS)
@@ -97,7 +97,9 @@ data/
     {"id": "MSS_VictoriaBridgeUpstreamCyc", "name": "Victoria Bridge Upstream (Cycling Path)", "region_short": "MSS", "region": "Montreal South Shore"},
     {"id": "MSS_SainteCatherineRecreoParc", "name": "Sainte-Catherine/RécréoParc Bridge", "region_short": "MSS", "region": "Montreal South Shore"},
     {"id": "SBS_StLouisdeGonzagueBridge", "name": "St-Louis-de-Gonzague Bridge", "region_short": "SBS", "region": "Salaberry / Beauharnois / Suroît Region"},
-    {"id": "SBS_LarocqueBridgeSalaberryde", "name": "Larocque Bridge (Salaberry-de-Valleyfield)", "region_short": "SBS", "region": "Salaberry / Beauharnois / Suroît Region"}
+    {"id": "SBS_LarocqueBridgeSalaberryde", "name": "Larocque Bridge (Salaberry-de-Valleyfield)", "region_short": "SBS", "region": "Salaberry / Beauharnois / Suroît Region"},
+    {"id": "K_CPRailwayBridge7A", "name": "CP Railway Bridge 7A", "region_short": "K", "region": "Kahnawake"},
+    {"id": "K_CPRailwayBridge7B", "name": "CP Railway Bridge 7B", "region_short": "K", "region": "Kahnawake"}
   ],
 
   "bridges": {
@@ -280,6 +282,7 @@ from scraper import sanitize_document_id
 
 connected_clients: list[WebSocket] = []
 main_loop: asyncio.AbstractEventLoop = None
+last_scrape_time: datetime = None  # Tracks when last scrape completed (for health monitoring)
 scheduler = AsyncIOScheduler(timezone=TIMEZONE)
 
 def generate_available_bridges() -> list:
@@ -373,6 +376,7 @@ def health():
     return {
         "status": "ok",
         "last_updated": data.get("last_updated"),
+        "last_scrape": last_scrape_time.isoformat() if last_scrape_time else None,
         "bridges_count": len(data.get("bridges", {})),
         "websocket_clients": len(connected_clients)
     }
@@ -433,6 +437,16 @@ app.add_middleware(
 - `update_bridge_history()` → `append_to_history_file()`
 - Remove all Firebase imports
 - Remove `cachetools.TTLCache` for `last_known_open_times` (not needed without Firestore)
+
+**Update `scrape_and_update()` to track last scrape time:**
+```python
+from main import last_scrape_time  # Import global
+
+def scrape_and_update():
+    global last_scrape_time
+    # ... existing scraping logic ...
+    last_scrape_time = datetime.now(TIMEZONE)  # Update at end of each cycle
+```
 
 **Add (predictions - moved from iOS):**
 ```python
@@ -1460,7 +1474,7 @@ Now every push to main auto-deploys.
 
 ## What You Keep
 
-- All 13 bridges monitored
+- All 15 bridges monitored
 - Real-time status updates (actually faster via WebSocket)
 - Statistics and predictions
 - History tracking (300 entries per bridge)

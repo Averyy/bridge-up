@@ -1,0 +1,19 @@
+# Caddyfile
+# Bridge Up API - Caddy Configuration
+#
+# Add this to your existing Caddy configuration or replace the main Caddyfile
+# Caddy automatically provisions SSL certificates from Let's Encrypt
+
+api.bridgeup.app {
+    # Reverse proxy to uvicorn
+    reverse_proxy localhost:8000
+
+    # Enable compression
+    encode gzip
+
+    # Logging
+    log {
+        output file /var/log/caddy/bridgeup.log
+        format json
+    }
+}

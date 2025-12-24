@@ -46,7 +46,8 @@ def main():
         ("tests/test_thread_safety.py", "Thread Safety Tests (concurrent access)"),
         ("tests/test_backoff.py", "Backoff Tests (exponential retry logic)"),
         ("tests/test_network_backoff.py", "Network Backoff Tests (failure handling)"),
-        ("tests/test_logging.py", "Logging Tests (output format)")
+        ("tests/test_logging.py", "Logging Tests (output format)"),
+        ("tests/test_predictions.py", "Prediction Tests (iOS logic moved to backend)")
     ]
     
     passed = 0

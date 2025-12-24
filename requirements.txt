@@ -1,10 +1,21 @@
-#requirements.txt
-firebase-admin
+# requirements.txt
+# Bridge Up Backend - FastAPI + WebSocket
+
+# Web framework
+fastapi
+uvicorn[standard]
+
+# HTTP client
 requests
+
+# Configuration
 python-dotenv
+
+# Timezone handling
 pytz
-flask
+
+# Background scheduling
 apscheduler
-waitress
-cachetools
+
+# Logging
 loguru

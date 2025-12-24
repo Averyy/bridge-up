@@ -2,32 +2,35 @@
 
 ## Project Overview
 
-Bridge Up Backend is a Python-based bridge monitoring service that scrapes real-time bridge status data from official St. Lawrence Seaway websites, processes this information with intelligent analysis, and stores it in Firebase Firestore. The system provides automated updates, historical tracking, and predictive analytics for consumption by the iOS app.
+Bridge Up Backend is a Python-based bridge monitoring service that scrapes real-time bridge status data from official St. Lawrence Seaway websites, processes this information with intelligent analysis, and serves it via WebSocket and REST API. The system provides automated updates, historical tracking, and predictive analytics for consumption by iOS and web apps.
 
 **Core Value Proposition**: Authoritative bridge status data with intelligent predictions based on historical analysis.
 
-## Recent Critical Updates (June 2025)
-- **Fixed**: APScheduler stalling issue with request timeouts + `max_instances=3`
-- **Added**: Concurrent scraping with ThreadPoolExecutor (50x speedup)
-- **Implemented**: Comprehensive test suite (33 tests, <1s execution)
-
-## Architecture Overview
+## Architecture (Post-Migration December 2024)
 
 ```
-St. Lawrence Seaway Websites → Python Scraper → Data Processing → Firebase Firestore → iOS App
-        ↓                          ↓              ↓                      ↓
-Scheduled Updates          Statistical       Real-time Updates    Live Status
-                          Analysis          to Mobile App        Display
+St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST -> iOS/Web Apps
 ```
 
-**Key Design Decisions**: 
-- Aggressive scraping schedule for real-time accuracy (20-30 second intervals)
-- Historical data analysis for predictive confidence intervals
-- Firebase as the bridge between backend and iOS app
-- Docker containerization for reliable deployment
-- Dual parser system for old and new JSON API formats with smart endpoint caching
-- Concurrent execution with timeout protection (10s + 3 retries)
-- Test-first development workflow
+**Key Components**:
+- `main.py` - FastAPI app with WebSocket, scheduler, CORS
+- `scraper.py` - Bridge data scraping and JSON updates
+- `predictions.py` - Prediction logic (moved from iOS to backend)
+- `stats_calculator.py` - Historical statistics calculation
+- `shared.py` - Shared state module (avoids circular imports)
+- `config.py` - Bridge configuration
+
+**Data Storage**: JSON files in `data/` directory
+- `data/bridges.json` - Current bridge state with predictions
+- `data/history/*.json` - Historical data per bridge (max 300 entries each)
+
+## API Endpoints
+
+- `WS /ws` - WebSocket for real-time updates (push on change)
+- `GET /bridges` - HTTP fallback (same data as WebSocket)
+- `GET /bridges/{id}` - Single bridge by ID
+- `GET /health` - Health check with status info
+- `GET /docs` - Auto-generated OpenAPI documentation
 
 ## Monitored Bridge Network
 
@@ -35,213 +38,108 @@ Scheduled Updates          Statistical       Real-time Updates    Live Status
 - **SCT (St. Catharines)**: 5 bridges including Highway 20, Queenston St, Glendale Ave, Lakeshore Rd, Carlton St
 - **PC (Port Colborne)**: 3 bridges including Main St, Clarence St, Mellanby Ave
 - **MSS (Montreal South Shore)**: 3 bridges including Victoria Bridge variants, Sainte-Catherine
-- **SBS (Salaberry/Beauharnois)**: Various bridges in the region
+- **K (Kahnawake)**: 2 bridges (CP Railway Bridges 7A, 7B)
+- **SBS (Salaberry/Beauharnois)**: 2 bridges including St-Louis-de-Gonzague, Larocque Bridge
 
 ### Bridge Status Types
-- **open**: Normal traffic flow
-- **closed**: Bridge raised for vessel passage
-- **closing soon**: Bridge will raise within predicted timeframe
-- **opening**: Bridge lowering after vessel passage
-- **construction**: Scheduled maintenance or construction
-- **unknown**: Status unavailable or parsing error
+- **Open**: Normal traffic flow
+- **Closed**: Bridge raised for vessel passage
+- **Closing soon**: Bridge will raise within predicted timeframe
+- **Opening**: Bridge lowering after vessel passage
+- **Construction**: Scheduled maintenance or construction
+- **Unknown**: Status unavailable or parsing error
 
 ## Technical Stack
 
-- **Language**: Python 3.9+
-- **Web Framework**: Flask with APScheduler for development, Waitress for production
-- **Data Fetching**: requests (with timeouts), direct JSON API consumption
-- **Database**: Firebase Firestore for real-time data synchronization
+- **Language**: Python 3.11+
+- **Web Framework**: FastAPI with uvicorn
+- **Data Storage**: JSON files with atomic writes
 - **Scheduling**: APScheduler with `max_instances=3`, `coalesce=True`
-- **Deployment**: Docker with GitHub Actions CI/CD
-- **Testing**: 33 tests covering core logic and edge cases
-- **Monitoring**: Comprehensive logging for debugging and reliability
+- **Deployment**: Docker with Caddy reverse proxy
+- **Testing**: 9 test files covering core logic and edge cases
+- **Monitoring**: Loguru for structured logging, `/health` endpoint
 
-## Core Files & Functionality
+## Core Functionality
 
-### Main Components
-- **`scraper.py`** - Main bridge data scraping logic and Firebase integration
-- **`stats_calculator.py`** - Historical analysis and predictive statistics calculation
-- **`config.py`** - Bridge URLs, coordinates, and configuration management
-- **`start_flask.py`** - Development server with APScheduler setup
-- **`start_waitress.py`** - Production server configuration
-- **`app.py`** - Basic Flask app (minimal, mainly for health checks)
+### 1. Data Fetching Engine
+- Scheduled fetching from official bridge status JSON API
+- Smart endpoint caching (auto-discovers correct endpoint per region)
+- Concurrent scraping with ThreadPoolExecutor (4 workers)
+- Error handling with exponential backoff (never gives up)
 
-### Core Functionality
+### 2. Data Processing Pipeline
+- Status normalization and validation
+- Upcoming closure detection and parsing
+- Historical activity logging
+- Prediction calculation (moved from iOS)
 
-1. **Data Fetching Engine**
-   - Scheduled fetching of official bridge status JSON API
-   - JSON parsing and data extraction
-   - Smart endpoint caching (auto-discovers correct endpoint per region)
-   - Error handling for API changes and downtime
-   - Rate limiting to avoid IP blocking
+### 3. Real-Time Updates
+- WebSocket broadcast on status changes
+- HTTP fallback for clients that can't use WebSocket
+- Full state sent on connect (no delta sync)
 
-2. **Data Processing Pipeline**
-   - Status normalization and validation
-   - Upcoming closure detection and parsing
-   - Historical activity logging
-   - Statistical analysis for predictions
+### 4. Predictive Analytics
+- Confidence interval calculations from historical data
+- Blended predictions (vessel duration + statistics)
+- Duration bucket analysis
+- Prediction meanings:
+  - Closed: When bridge will OPEN
+  - Closing soon: When bridge will CLOSE
+  - Construction: When bridge will OPEN (if end_time known)
 
-3. **Firebase Integration**
-   - Real-time document updates
-   - Historical data storage
-   - Structured schema for iOS app consumption
-   - Cost-optimized write operations (only on actual changes)
+## JSON Schema
 
-4. **Predictive Analytics**
-   - Confidence interval calculations from historical data
-   - Closure duration analysis
-   - "Closing soon" time predictions
-   - Statistical categorization of closure patterns
-
-## Data Sources
-
-The backend scrapes bridge status from official sources:
-
-1. **St. Lawrence Seaway Management Corporation**
-   - Real-time bridge status pages
-   - Upcoming closure schedules
-   - Construction notifications
-
-2. **Regional Bridge Authorities**
-   - Port Colborne bridge systems
-   - St. Catharines bridge network
-   - Montreal South Shore bridges
-
-## Firebase Document Schema
-
-```python
+```json
 {
-    "name": str,                    # "Queenston St"
-    "coordinates": GeoPoint,        # Latitude/longitude
-    "region": str,                  # "St. Catharines"
-    "region_short": str,            # "SCT"
-    "statistics": {
-        "average_closure_duration": int,
-        "closure_ci": {"lower": int, "upper": int},
-        "average_raising_soon": int,
-        "raising_soon_ci": {"lower": int, "upper": int},
-        "closure_durations": {
-            "under_9m": int,
-            "10_15m": int,
-            "16_30m": int,
-            "31_60m": int,
-            "over_60m": int
-        },
-        "total_entries": int
-    },
-    "live": {
-        "status": str,              # Bridge status
-        "last_updated": timestamp,
+  "last_updated": "2025-12-24T15:30:00-05:00",
+  "available_bridges": [
+    {"id": "SCT_CarltonSt", "name": "Carlton St.", "region_short": "SCT", "region": "St Catharines"}
+  ],
+  "bridges": {
+    "SCT_CarltonSt": {
+      "static": {
+        "name": "Carlton St.",
+        "region": "St Catharines",
+        "region_short": "SCT",
+        "coordinates": {"lat": 43.19, "lng": -79.20},
+        "statistics": {
+          "average_closure_duration": 12,
+          "closure_ci": {"lower": 8, "upper": 16},
+          "average_raising_soon": 3,
+          "raising_soon_ci": {"lower": 2, "upper": 5},
+          "closure_durations": {"under_9m": 45, "10_15m": 30, "16_30m": 15, "31_60m": 8, "over_60m": 2},
+          "total_entries": 287
+        }
+      },
+      "live": {
+        "status": "Closed",
+        "last_updated": "2025-12-20T15:20:00-05:00",
+        "predicted": {"lower": "2025-12-20T15:28:00-05:00", "upper": "2025-12-20T15:36:00-05:00"},
         "upcoming_closures": [
-            {
-                "type": str,        # "Commercial Vessel", "Construction"
-                "time": timestamp,
-                "longer": bool,
-                "end_time": timestamp  # Optional
-            }
+          {
+            "type": "Commercial Vessel",
+            "time": "2025-12-20T15:20:00-05:00",
+            "longer": false,
+            "expected_duration_minutes": 15
+          }
         ]
+      }
     }
+  }
 }
 ```
 
 ## Scheduling System
 
 ### Scraping Intervals
-- **Daytime (6:00 AM - 9:59 PM)**: 20-second intervals for high traffic periods
-- **Nighttime (10:00 PM - 5:59 AM)**: 30-second intervals for reduced activity
-- **Daily Statistics**: 4:00 AM recalculation of confidence intervals
+- **Daytime (6:00 AM - 9:59 PM)**: 20-second intervals
+- **Nighttime (10:00 PM - 5:59 AM)**: 30-second intervals
+- **Daily Statistics**: 3:00 AM recalculation
 
 ### Error Handling
-- Automatic retry with exponential backoff
+- Automatic retry with exponential backoff (never gives up)
 - Graceful degradation during website outages
-- IP blocking detection and mitigation
-- Comprehensive error logging
-
-## Data Processing Workflow
-
-### 1. Data Fetching
-- Fetch bridge status from JSON API
-- Parse JSON for status information
-- Extract upcoming closure schedules
-- Validate data format and completeness
-
-### 2. Status Analysis
-- Normalize status strings to standard values
-- Detect status changes from previous scrape
-- Parse upcoming vessel and construction closures
-- Handle special cases (construction, unknown status)
-
-### 3. Historical Tracking
-- Log all status changes with timestamps
-- Calculate closure durations
-- Track "closing soon" lead times
-- Maintain rolling history for statistics
-
-### 4. Statistical Analysis
-- Calculate confidence intervals for closure durations
-- Analyze "closing soon" timing patterns
-- Categorize closures by duration
-- Generate predictive statistics for iOS app
-
-### 5. Firebase Updates
-- Update live status data in real-time
-- Batch update statistical information
-- Trigger iOS app updates via Firestore listeners
-- Optimize write operations for cost efficiency
-
-## Configuration Management
-
-### Bridge Configuration (config.py)
-```python
-# Bridge keys and metadata (endpoints loaded from .env)
-BRIDGE_KEYS = {
-    'BridgeSCT': {'region': 'St Catharines', 'shortform': 'SCT'},
-    'BridgePC': {'region': 'Port Colborne', 'shortform': 'PC'},
-    'BridgeM': {'region': 'Montreal South Shore', 'shortform': 'MSS'},
-    'BridgeSBS': {'region': 'Salaberry / Beauharnois / Suroît Region', 'shortform': 'SBS'}
-}
-
-BRIDGE_DETAILS = {
-    'St Catharines': {
-        'Queenston St.': {
-            'lat': 43.165824700918485,
-            'lng': -79.19492604380804,
-            'number': '4'
-        },
-        # ... other bridges
-    }
-}
-```
-
-### Environment Variables
-- Firebase credentials path
-- Scraping intervals
-- Error thresholds
-- Logging levels
-
-## Deployment Architecture
-
-### Development
-- Flask development server
-- Local Firebase emulator (optional)
-- Manual scraping triggers
-- Debug logging enabled
-
-### Production
-- Docker container with Waitress WSGI server
-- Firebase production database
-- Automated scheduling with APScheduler
-- Structured logging for monitoring
-- Health checks and auto-restart capabilities
-
-## Performance & Cost Optimization
-
-- **Minimize Firebase writes**: Only update when status actually changes
-- **Efficient queries**: Use targeted document updates
-- **Smart caching**: Avoid redundant scraping when status unchanged
-- **Resource management**: Proper connection pooling and cleanup
-- **Memory usage**: Handle large historical datasets efficiently
-- **Cost monitoring**: Track Firebase operations for optimization
+- Smart endpoint caching recovers from temporary failures
 
 ## Development Workflow
 
@@ -249,43 +147,44 @@ BRIDGE_DETAILS = {
 # 1. Make changes
 # 2. Run tests (MANDATORY)
 python run_tests.py
-# 3. Deploy only if tests pass
+# 3. Run development server
+uvicorn main:app --reload
 ```
 
-## Common Pitfalls to Avoid
-1. **Never skip tests** - Always run `python run_tests.py` before deploying
-2. **Never remove request timeouts** - This caused the major stalling bug
-3. **Don't change Firebase schema** - iOS app depends on exact structure
-4. **Maintain concurrent execution** - Sequential would be 50x slower
-5. **Keep dual parser system** - Different regions use different JSON formats
-6. **Don't over-engineer** - This is a startup, ship fast
+## Deployment
+
+```bash
+# On VPS (api.bridgeup.app)
+docker compose up -d --build
+curl https://api.bridgeup.app/health
+docker exec bridgeup-app python -c "from scraper import daily_statistics_update; daily_statistics_update()"
+```
 
 ## Performance Metrics
 - **Scraping Speed**: ~0.7 seconds for all 5 regions (15 bridges total)
 - **Test Execution**: <1 second for full test suite
-- **Firebase Writes**: Only on status changes (cost optimization)
+- **Updates**: Only on status changes (efficient)
 - **History Management**: Auto-cleanup keeps max 300 entries per bridge
-- **Uptime**: No stalling since timeout fix implementation
 
-## Success Metrics
-
-- 99%+ scraping success rate during normal operations
-- Sub-30-second latency for status changes
-- Accurate predictions within confidence intervals
-- Zero data loss during website outages
-- Cost-effective Firebase operations
+## Common Pitfalls to Avoid
+1. **Never skip tests** - Always run `python run_tests.py` before deploying
+2. **Never remove request timeouts** - This caused a major stalling bug
+3. **Don't change JSON schema** - Clients depend on exact structure
+4. **Maintain concurrent execution** - Sequential would be 50x slower
+5. **Keep dual parser system** - Different regions use different JSON formats
+6. **Use atomic writes** - Prevents JSON corruption on crash
 
 ## Business Context
-- **Users**: Boaters and bridge operators who need real-time status
+- **Users**: Travelers who need real-time bridge status
 - **Value Prop**: Not just status, but predictions based on historical patterns
 - **Competition**: Other apps just show open/closed, we predict duration
-- **iOS App**: Read-only consumer of this backend's data
+- **Clients**: iOS app, potential web app, potential Android app
 
-## Relationship to iOS App
+## Relationship to Clients
 
-The backend serves as the **authoritative data source** for the iOS app:
-- iOS app is **read-only** - never writes to Firebase
-- Backend manages all document schema and structure
-- Real-time updates flow from backend to iOS via Firebase listeners
-- Statistical predictions calculated here are consumed by iOS for user predictions
-- Any schema changes must be coordinated between backend and iOS teams
+The backend serves as the **authoritative data source** for all clients:
+- Clients are **read-only** - never write to backend
+- Backend manages all data schema and structure
+- Real-time updates flow via WebSocket
+- Predictions calculated server-side (simpler client code)
+- Any schema changes must be coordinated with client teams

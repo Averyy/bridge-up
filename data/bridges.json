@@ -1,0 +1,655 @@
+{
+  "last_updated": "2025-12-24T10:03:56.969886-05:00",
+  "available_bridges": [
+    {
+      "id": "SCT_LakeshoreRd",
+      "name": "Lakeshore Rd",
+      "region_short": "SCT",
+      "region": "St Catharines"
+    },
+    {
+      "id": "SCT_CarltonSt",
+      "name": "Carlton St.",
+      "region_short": "SCT",
+      "region": "St Catharines"
+    },
+    {
+      "id": "SCT_QueenstonSt",
+      "name": "Queenston St.",
+      "region_short": "SCT",
+      "region": "St Catharines"
+    },
+    {
+      "id": "SCT_GlendaleAve",
+      "name": "Glendale Ave.",
+      "region_short": "SCT",
+      "region": "St Catharines"
+    },
+    {
+      "id": "SCT_Highway",
+      "name": "Highway 20",
+      "region_short": "SCT",
+      "region": "St Catharines"
+    },
+    {
+      "id": "PC_MainSt",
+      "name": "Main St.",
+      "region_short": "PC",
+      "region": "Port Colborne"
+    },
+    {
+      "id": "PC_MellanbyAve",
+      "name": "Mellanby Ave.",
+      "region_short": "PC",
+      "region": "Port Colborne"
+    },
+    {
+      "id": "PC_ClarenceSt",
+      "name": "Clarence St.",
+      "region_short": "PC",
+      "region": "Port Colborne"
+    },
+    {
+      "id": "MSS_VictoriaBridgeDownstream",
+      "name": "Victoria Bridge Downstream",
+      "region_short": "MSS",
+      "region": "Montreal South Shore"
+    },
+    {
+      "id": "MSS_VictoriaBridgeUpstreamCyc",
+      "name": "Victoria Bridge Upstream (Cycling Path)",
+      "region_short": "MSS",
+      "region": "Montreal South Shore"
+    },
+    {
+      "id": "MSS_SainteCatherineRecreoParc",
+      "name": "Sainte-Catherine/R\u00e9cr\u00e9oParc Bridge",
+      "region_short": "MSS",
+      "region": "Montreal South Shore"
+    },
+    {
+      "id": "K_CPRailwayBridgeA",
+      "name": "CP Railway Bridge 7A",
+      "region_short": "K",
+      "region": "Kahnawake"
+    },
+    {
+      "id": "K_CPRailwayBridgeB",
+      "name": "CP Railway Bridge 7B",
+      "region_short": "K",
+      "region": "Kahnawake"
+    },
+    {
+      "id": "SBS_StLouisdeGonzagueBridge",
+      "name": "St-Louis-de-Gonzague Bridge",
+      "region_short": "SBS",
+      "region": "Salaberry / Beauharnois / Suro\u00eet Region"
+    },
+    {
+      "id": "SBS_LarocqueBridgeSalaberryde",
+      "name": "Larocque Bridge (Salaberry-de-Valleyfield)",
+      "region_short": "SBS",
+      "region": "Salaberry / Beauharnois / Suro\u00eet Region"
+    }
+  ],
+  "bridges": {
+    "K_CPRailwayBridgeB": {
+      "static": {
+        "name": "CP Railway Bridge 7B",
+        "region": "Kahnawake",
+        "region_short": "K",
+        "coordinates": {
+          "lat": 45.4112624483958,
+          "lng": -73.66203405574073
+        },
+        "statistics": {
+          "average_closure_duration": 0,
+          "closure_ci": {
+            "lower": 8,
+            "upper": 16
+          },
+          "average_raising_soon": 0,
+          "raising_soon_ci": {
+            "lower": 3,
+            "upper": 8
+          },
+          "closure_durations": {
+            "under_9m": 0,
+            "10_15m": 0,
+            "16_30m": 0,
+            "31_60m": 0,
+            "over_60m": 0
+          },
+          "total_entries": 0
+        }
+      },
+      "live": {
+        "status": "Closing",
+        "last_updated": "2025-12-24T10:03:56.577044-05:00",
+        "upcoming_closures": [],
+        "predicted": null
+      }
+    },
+    "K_CPRailwayBridgeA": {
+      "static": {
+        "name": "CP Railway Bridge 7A",
+        "region": "Kahnawake",
+        "region_short": "K",
+        "coordinates": {
+          "lat": 45.411294284530854,
+          "lng": -73.66214553001862
+        },
+        "statistics": {
+          "average_closure_duration": 0,
+          "closure_ci": {
+            "lower": 8,
+            "upper": 16
+          },
+          "average_raising_soon": 0,
+          "raising_soon_ci": {
+            "lower": 3,
+            "upper": 8
+          },
+          "closure_durations": {
+            "under_9m": 0,
+            "10_15m": 0,
+            "16_30m": 0,
+            "31_60m": 0,
+            "over_60m": 0
+          },
+          "total_entries": 0
+        }
+      },
+      "live": {
+        "status": "Closing",
+        "last_updated": "2025-12-24T10:03:56.577044-05:00",
+        "upcoming_closures": [],
+        "predicted": null
+      }
+    },
+    "SCT_LakeshoreRd": {
+      "static": {
+        "name": "Lakeshore Rd",
+        "region": "St Catharines",
+        "region_short": "SCT",
+        "coordinates": {
+          "lat": 43.21617521494522,
+          "lng": -79.21223177177772
+        },
+        "statistics": {
+          "average_closure_duration": 0,
+          "closure_ci": {
+            "lower": 8,
+            "upper": 16
+          },
+          "average_raising_soon": 0,
+          "raising_soon_ci": {
+            "lower": 3,
+            "upper": 8
+          },
+          "closure_durations": {
+            "under_9m": 0,
+            "10_15m": 0,
+            "16_30m": 0,
+            "31_60m": 0,
+            "over_60m": 0
+          },
+          "total_entries": 0
+        }
+      },
+      "live": {
+        "status": "Open",
+        "last_updated": "2025-12-24T10:03:56.577625-05:00",
+        "upcoming_closures": [],
+        "predicted": null
+      }
+    },
+    "SCT_CarltonSt": {
+      "static": {
+        "name": "Carlton St.",
+        "region": "St Catharines",
+        "region_short": "SCT",
+        "coordinates": {
+          "lat": 43.19185980424842,
+          "lng": -79.20100809118367
+        },
+        "statistics": {
+          "average_closure_duration": 0,
+          "closure_ci": {
+            "lower": 8,
+            "upper": 16
+          },
+          "average_raising_soon": 0,
+          "raising_soon_ci": {
+            "lower": 3,
+            "upper": 8
+          },
+          "closure_durations": {
+            "under_9m": 0,
+            "10_15m": 0,
+            "16_30m": 0,
+            "31_60m": 0,
+            "over_60m": 0
+          },
+          "total_entries": 0
+        }
+      },
+      "live": {
+        "status": "Open",
+        "last_updated": "2025-12-24T10:03:56.577625-05:00",
+        "upcoming_closures": [],
+        "predicted": null
+      }
+    },
+    "SCT_QueenstonSt": {
+      "static": {
+        "name": "Queenston St.",
+        "region": "St Catharines",
+        "region_short": "SCT",
+        "coordinates": {
+          "lat": 43.165824700918485,
+          "lng": -79.19492604380804
+        },
+        "statistics": {
+          "average_closure_duration": 0,
+          "closure_ci": {
+            "lower": 8,
+            "upper": 16
+          },
+          "average_raising_soon": 0,
+          "raising_soon_ci": {
+            "lower": 3,
+            "upper": 8
+          },
+          "closure_durations": {
+            "under_9m": 0,
+            "10_15m": 0,
+            "16_30m": 0,
+            "31_60m": 0,
+            "over_60m": 0
+          },
+          "total_entries": 0
+        }
+      },
+      "live": {
+        "status": "Open",
+        "last_updated": "2025-12-24T10:03:56.577625-05:00",
+        "upcoming_closures": [],
+        "predicted": null
+      }
+    },
+    "SCT_GlendaleAve": {
+      "static": {
+        "name": "Glendale Ave.",
+        "region": "St Catharines",
+        "region_short": "SCT",
+        "coordinates": {
+          "lat": 43.145269317159695,
+          "lng": -79.19232941376643
+        },
+        "statistics": {
+          "average_closure_duration": 0,
+          "closure_ci": {
+            "lower": 8,
+            "upper": 16
+          },
+          "average_raising_soon": 0,
+          "raising_soon_ci": {
+            "lower": 3,
+            "upper": 8
+          },
+          "closure_durations": {
+            "under_9m": 0,
+            "10_15m": 0,
+            "16_30m": 0,
+            "31_60m": 0,
+            "over_60m": 0
+          },
+          "total_entries": 0
+        }
+      },
+      "live": {
+        "status": "Open",
+        "last_updated": "2025-12-24T10:03:56.577625-05:00",
+        "upcoming_closures": [],
+        "predicted": null
+      }
+    },
+    "SCT_Highway": {
+      "static": {
+        "name": "Highway 20",
+        "region": "St Catharines",
+        "region_short": "SCT",
+        "coordinates": {
+          "lat": 43.076504078254914,
+          "lng": -79.21046775066173
+        },
+        "statistics": {
+          "average_closure_duration": 0,
+          "closure_ci": {
+            "lower": 8,
+            "upper": 16
+          },
+          "average_raising_soon": 0,
+          "raising_soon_ci": {
+            "lower": 3,
+            "upper": 8
+          },
+          "closure_durations": {
+            "under_9m": 0,
+            "10_15m": 0,
+            "16_30m": 0,
+            "31_60m": 0,
+            "over_60m": 0
+          },
+          "total_entries": 0
+        }
+      },
+      "live": {
+        "status": "Open",
+        "last_updated": "2025-12-24T10:03:56.577625-05:00",
+        "upcoming_closures": [],
+        "predicted": null
+      }
+    },
+    "MSS_VictoriaBridgeDownstream": {
+      "static": {
+        "name": "Victoria Bridge Downstream",
+        "region": "Montreal South Shore",
+        "region_short": "MSS",
+        "coordinates": {
+          "lat": 45.495530624042686,
+          "lng": -73.5178096557915
+        },
+        "statistics": {
+          "average_closure_duration": 0,
+          "closure_ci": {
+            "lower": 8,
+            "upper": 16
+          },
+          "average_raising_soon": 0,
+          "raising_soon_ci": {
+            "lower": 3,
+            "upper": 8
+          },
+          "closure_durations": {
+            "under_9m": 0,
+            "10_15m": 0,
+            "16_30m": 0,
+            "31_60m": 0,
+            "over_60m": 0
+          },
+          "total_entries": 0
+        }
+      },
+      "live": {
+        "status": "Closed",
+        "last_updated": "2025-12-24T10:03:56.578537-05:00",
+        "upcoming_closures": [],
+        "predicted": {
+          "lower": "2025-12-24T10:11:56.578537-05:00",
+          "upper": "2025-12-24T10:19:56.578537-05:00"
+        }
+      }
+    },
+    "MSS_VictoriaBridgeUpstreamCyc": {
+      "static": {
+        "name": "Victoria Bridge Upstream (Cycling Path)",
+        "region": "Montreal South Shore",
+        "region_short": "MSS",
+        "coordinates": {
+          "lat": 45.49234276250341,
+          "lng": -73.5168207947014
+        },
+        "statistics": {
+          "average_closure_duration": 0,
+          "closure_ci": {
+            "lower": 8,
+            "upper": 16
+          },
+          "average_raising_soon": 0,
+          "raising_soon_ci": {
+            "lower": 3,
+            "upper": 8
+          },
+          "closure_durations": {
+            "under_9m": 0,
+            "10_15m": 0,
+            "16_30m": 0,
+            "31_60m": 0,
+            "over_60m": 0
+          },
+          "total_entries": 0
+        }
+      },
+      "live": {
+        "status": "Open",
+        "last_updated": "2025-12-24T10:03:56.578537-05:00",
+        "upcoming_closures": [],
+        "predicted": null
+      }
+    },
+    "MSS_SainteCatherineRecreoParc": {
+      "static": {
+        "name": "Sainte-Catherine/R\u00e9cr\u00e9oParc Bridge",
+        "region": "Montreal South Shore",
+        "region_short": "MSS",
+        "coordinates": {
+          "lat": 45.4080536309029,
+          "lng": -73.56725875784645
+        },
+        "statistics": {
+          "average_closure_duration": 0,
+          "closure_ci": {
+            "lower": 8,
+            "upper": 16
+          },
+          "average_raising_soon": 0,
+          "raising_soon_ci": {
+            "lower": 3,
+            "upper": 8
+          },
+          "closure_durations": {
+            "under_9m": 0,
+            "10_15m": 0,
+            "16_30m": 0,
+            "31_60m": 0,
+            "over_60m": 0
+          },
+          "total_entries": 0
+        }
+      },
+      "live": {
+        "status": "Open",
+        "last_updated": "2025-12-24T10:03:56.578537-05:00",
+        "upcoming_closures": [],
+        "predicted": null
+      }
+    },
+    "PC_MainSt": {
+      "static": {
+        "name": "Main St.",
+        "region": "Port Colborne",
+        "region_short": "PC",
+        "coordinates": {
+          "lat": 42.90150138320793,
+          "lng": -79.24542847877964
+        },
+        "statistics": {
+          "average_closure_duration": 0,
+          "closure_ci": {
+            "lower": 8,
+            "upper": 16
+          },
+          "average_raising_soon": 0,
+          "raising_soon_ci": {
+            "lower": 3,
+            "upper": 8
+          },
+          "closure_durations": {
+            "under_9m": 0,
+            "10_15m": 0,
+            "16_30m": 0,
+            "31_60m": 0,
+            "over_60m": 0
+          },
+          "total_entries": 0
+        }
+      },
+      "live": {
+        "status": "Open",
+        "last_updated": "2025-12-24T10:03:56.581573-05:00",
+        "upcoming_closures": [],
+        "predicted": null
+      }
+    },
+    "PC_MellanbyAve": {
+      "static": {
+        "name": "Mellanby Ave.",
+        "region": "Port Colborne",
+        "region_short": "PC",
+        "coordinates": {
+          "lat": 42.89646530877105,
+          "lng": -79.24659751954275
+        },
+        "statistics": {
+          "average_closure_duration": 0,
+          "closure_ci": {
+            "lower": 8,
+            "upper": 16
+          },
+          "average_raising_soon": 0,
+          "raising_soon_ci": {
+            "lower": 3,
+            "upper": 8
+          },
+          "closure_durations": {
+            "under_9m": 0,
+            "10_15m": 0,
+            "16_30m": 0,
+            "31_60m": 0,
+            "over_60m": 0
+          },
+          "total_entries": 0
+        }
+      },
+      "live": {
+        "status": "Open",
+        "last_updated": "2025-12-24T10:03:56.581573-05:00",
+        "upcoming_closures": [],
+        "predicted": null
+      }
+    },
+    "PC_ClarenceSt": {
+      "static": {
+        "name": "Clarence St.",
+        "region": "Port Colborne",
+        "region_short": "PC",
+        "coordinates": {
+          "lat": 42.88637569993079,
+          "lng": -79.2486307492592
+        },
+        "statistics": {
+          "average_closure_duration": 0,
+          "closure_ci": {
+            "lower": 8,
+            "upper": 16
+          },
+          "average_raising_soon": 0,
+          "raising_soon_ci": {
+            "lower": 3,
+            "upper": 8
+          },
+          "closure_durations": {
+            "under_9m": 0,
+            "10_15m": 0,
+            "16_30m": 0,
+            "31_60m": 0,
+            "over_60m": 0
+          },
+          "total_entries": 0
+        }
+      },
+      "live": {
+        "status": "Open",
+        "last_updated": "2025-12-24T10:03:56.581573-05:00",
+        "upcoming_closures": [],
+        "predicted": null
+      }
+    },
+    "SBS_StLouisdeGonzagueBridge": {
+      "static": {
+        "name": "St-Louis-de-Gonzague Bridge",
+        "region": "Salaberry / Beauharnois / Suro\u00eet Region",
+        "region_short": "SBS",
+        "coordinates": {
+          "lat": 45.232607447464225,
+          "lng": -74.00297750906498
+        },
+        "statistics": {
+          "average_closure_duration": 0,
+          "closure_ci": {
+            "lower": 8,
+            "upper": 16
+          },
+          "average_raising_soon": 0,
+          "raising_soon_ci": {
+            "lower": 3,
+            "upper": 8
+          },
+          "closure_durations": {
+            "under_9m": 0,
+            "10_15m": 0,
+            "16_30m": 0,
+            "31_60m": 0,
+            "over_60m": 0
+          },
+          "total_entries": 0
+        }
+      },
+      "live": {
+        "status": "Open",
+        "last_updated": "2025-12-24T10:03:56.969886-05:00",
+        "upcoming_closures": [],
+        "predicted": null
+      }
+    },
+    "SBS_LarocqueBridgeSalaberryde": {
+      "static": {
+        "name": "Larocque Bridge (Salaberry-de-Valleyfield)",
+        "region": "Salaberry / Beauharnois / Suro\u00eet Region",
+        "region_short": "SBS",
+        "coordinates": {
+          "lat": 45.22588000852819,
+          "lng": -74.11479220520631
+        },
+        "statistics": {
+          "average_closure_duration": 0,
+          "closure_ci": {
+            "lower": 8,
+            "upper": 16
+          },
+          "average_raising_soon": 0,
+          "raising_soon_ci": {
+            "lower": 3,
+            "upper": 8
+          },
+          "closure_durations": {
+            "under_9m": 0,
+            "10_15m": 0,
+            "16_30m": 0,
+            "31_60m": 0,
+            "over_60m": 0
+          },
+          "total_entries": 0
+        }
+      },
+      "live": {
+        "status": "Open",
+        "last_updated": "2025-12-24T10:03:56.969886-05:00",
+        "upcoming_closures": [],
+        "predicted": null
+      }
+    }
+  }
+}

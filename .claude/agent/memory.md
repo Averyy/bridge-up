@@ -169,3 +169,69 @@ with state_lock:
 python -c "from scraper import daily_statistics_update; daily_statistics_update()"
 ```
 This is now documented in README.md.
+
+## Session: December 24, 2024 - Firebase to VPS Migration
+
+### Major Architecture Change: Firebase → Self-Hosted VPS
+**Goal**: Migrate from Firebase Firestore to self-hosted VPS with FastAPI + WebSocket + JSON storage.
+
+**Motivation**:
+- Fixed $5/mo cost (no Firebase anxiety)
+- Faster updates (WebSocket vs Firestore ~1-2s)
+- Simpler iOS code (no Firebase SDK, predictions on backend)
+- Full control (own server, own data)
+
+### New Architecture
+```
+St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST -> iOS/Web Apps
+```
+
+### Files Created
+- `shared.py` - Shared state module (avoids circular imports)
+- `predictions.py` - Prediction logic moved from iOS (~200 lines)
+- `main.py` - FastAPI app with WebSocket, scheduler, CORS
+- `docker-compose.yml` - Docker orchestration
+- `Caddyfile` - Caddy reverse proxy config
+- `tests/test_predictions.py` - 20+ prediction tests
+
+### Files Modified
+- `scraper.py` - Replaced Firebase with JSON + WebSocket broadcast
+  - Removed: `update_firestore()`, `update_bridge_history()`
+  - Added: `atomic_write_json()`, `update_json_and_broadcast()`, `update_history()`
+- `stats_calculator.py` - Removed Firestore params, returns tuple now
+- `requirements.txt` - Removed firebase-admin, added fastapi/uvicorn
+- `Dockerfile` - uvicorn instead of waitress, port 8000
+- `tests/test_network_backoff.py` - Updated mock targets
+- `tests/test_statistics.py` - Updated for new API
+
+### Key Technical Decisions
+
+1. **Shared State Module**: Created `shared.py` to prevent circular imports between main.py and scraper.py
+
+2. **Atomic JSON Writes**: Using temp file + `os.replace()` pattern for crash-safe writes
+
+3. **Thread-Safe Broadcasting**: Using `asyncio.run_coroutine_threadsafe()` to broadcast from scraper threads to async WebSocket
+
+4. **Prediction Logic**: Moved from iOS to backend, calculates on every status update
+
+### Deployment Process
+```bash
+# On VPS (api.bridgeup.app)
+docker compose up -d --build
+curl https://api.bridgeup.app/health
+docker exec bridgeup-app python -c "from scraper import daily_statistics_update; daily_statistics_update()"
+```
+
+### Test Results
+**All 9 test files pass (100%)**
+
+### Issues Fixed During Review
+- Docker healthcheck used `curl` but `python:3.11-slim` doesn't have it → Fixed to use Python's urllib
+
+### Documentation Updated
+- README.md - New architecture
+- CLAUDE.md - New architecture
+- .claude/agent/instructions.md - New architecture
+- .claude/agent/memory.md - This session
+- .claude/shared/project-context.md - New architecture
+- MIGRATION_PLAN_STATUS.md - Backend complete

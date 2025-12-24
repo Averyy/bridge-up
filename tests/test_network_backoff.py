@@ -24,7 +24,7 @@ class TestNetworkBackoff(unittest.TestCase):
             region_failures.clear()
 
     @patch('scraper.scrape_bridge_data')
-    @patch('scraper.update_firestore')
+    @patch('scraper.update_json_and_broadcast')
     def test_network_failure_triggers_backoff(self, mock_update, mock_scrape):
         """Test that network failures trigger exponential backoff"""
         test_key = "BridgeTEST"
@@ -53,7 +53,7 @@ class TestNetworkBackoff(unittest.TestCase):
         self.assertEqual(mock_scrape.call_count, 1)  # Only called once
 
     @patch('scraper.scrape_bridge_data')
-    @patch('scraper.update_firestore')
+    @patch('scraper.update_json_and_broadcast')
     def test_recovery_after_network_failure(self, mock_update, mock_scrape):
         """Test that successful scrape clears backoff"""
         test_key = "BridgeTEST"

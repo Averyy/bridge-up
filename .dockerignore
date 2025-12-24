@@ -1,20 +1,59 @@
 # .dockerignore
 
-# Usual suspects
-.env
-*.pyc
-__pycache__
+# Git and version control
 .git
 .gitignore
 
-# Remove macOS things
-.DS_Store
-
-# Firebase auth json keys
-*.json
+# Python artifacts
+*.pyc
+__pycache__
+*.pyo
+*.pyd
+.Python
 
 # Virtual environment
 venv/
 ENV/
 env/
 .venv/
+.mypy_cache/
+.pytest_cache/
+
+# IDE and editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment and secrets
+.env
+*.json
+firebase-auth.json
+
+# macOS
+.DS_Store
+
+# Claude Code
+.claude/
+.mcp.json
+
+# Documentation and non-runtime files
+*.md
+LICENSE
+TODO_*.md
+MIGRATION_*.md
+
+# Tests (not needed in production image)
+tests/
+run_tests.py
+
+# Old pre-migration files
+start_flask.py
+start_waitress.py
+app.py
+
+# Data directory (mounted as volume)
+data/
+
+# GitHub Actions
+.github/

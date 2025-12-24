@@ -85,21 +85,9 @@ data/
   "last_updated": "2025-12-20T15:30:00-05:00",
 
   "available_bridges": [
+    // Generated from config.py - 15 bridges with {id, name, region_short, region}
     {"id": "SCT_CarltonSt", "name": "Carlton St.", "region_short": "SCT", "region": "St Catharines"},
-    {"id": "SCT_QueenstonSt", "name": "Queenston St.", "region_short": "SCT", "region": "St Catharines"},
-    {"id": "SCT_GlendaleAve", "name": "Glendale Ave.", "region_short": "SCT", "region": "St Catharines"},
-    {"id": "SCT_LakeshoreRd", "name": "Lakeshore Rd", "region_short": "SCT", "region": "St Catharines"},
-    {"id": "SCT_Highway", "name": "Highway 20", "region_short": "SCT", "region": "St Catharines"},
-    {"id": "PC_MainSt", "name": "Main St.", "region_short": "PC", "region": "Port Colborne"},
-    {"id": "PC_MellanbyAve", "name": "Mellanby Ave.", "region_short": "PC", "region": "Port Colborne"},
-    {"id": "PC_ClarenceSt", "name": "Clarence St.", "region_short": "PC", "region": "Port Colborne"},
-    {"id": "MSS_VictoriaBridgeDownstream", "name": "Victoria Bridge Downstream", "region_short": "MSS", "region": "Montreal South Shore"},
-    {"id": "MSS_VictoriaBridgeUpstreamCyc", "name": "Victoria Bridge Upstream (Cycling Path)", "region_short": "MSS", "region": "Montreal South Shore"},
-    {"id": "MSS_SainteCatherineRecreoParc", "name": "Sainte-Catherine/RécréoParc Bridge", "region_short": "MSS", "region": "Montreal South Shore"},
-    {"id": "SBS_StLouisdeGonzagueBridge", "name": "St-Louis-de-Gonzague Bridge", "region_short": "SBS", "region": "Salaberry / Beauharnois / Suroît Region"},
-    {"id": "SBS_LarocqueBridgeSalaberryde", "name": "Larocque Bridge (Salaberry-de-Valleyfield)", "region_short": "SBS", "region": "Salaberry / Beauharnois / Suroît Region"},
-    {"id": "K_CPRailwayBridge7A", "name": "CP Railway Bridge 7A", "region_short": "K", "region": "Kahnawake"},
-    {"id": "K_CPRailwayBridge7B", "name": "CP Railway Bridge 7B", "region_short": "K", "region": "Kahnawake"}
+    // ... (14 more)
   ],
 
   "bridges": {
@@ -254,6 +242,7 @@ ELSE:
 ```
 backend/
 ├── main.py              # FastAPI app + WebSocket + scheduler
+├── shared.py            # NEW: Shared state (avoids circular imports)
 ├── scraper.py           # Modified for JSON storage + broadcast
 ├── predictions.py       # NEW: Prediction logic (moved from iOS)
 ├── stats_calculator.py  # Refactored (no Firestore params)
@@ -267,22 +256,51 @@ backend/
 └── requirements.txt
 ```
 
+### shared.py (NEW - avoids circular imports)
+```python
+"""Shared state module - prevents circular imports between main.py and scraper.py."""
+from datetime import datetime
+from typing import Dict, Any, Optional, List
+import threading
+import asyncio
+
+# Timezone
+import pytz
+TIMEZONE = pytz.timezone('America/Toronto')
+
+# Last scrape time (for health monitoring)
+last_scrape_time: Optional[datetime] = None
+
+# In-memory cache of current bridge state
+last_known_state: Dict[str, Any] = {}
+last_known_state_lock = threading.Lock()
+
+# WebSocket clients (managed by main.py)
+connected_clients: List = []  # List[WebSocket] - can't type hint due to import
+
+# Event loop reference (set by main.py at startup)
+main_loop: Optional[asyncio.AbstractEventLoop] = None
+```
+
 ### main.py
 ```python
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
+from datetime import datetime
 import json
 import asyncio
 import os
 
-from scraper import scrape_and_update, daily_statistics_update, TIMEZONE, last_known_state
+from shared import (
+    TIMEZONE, last_known_state, connected_clients, main_loop,
+    last_scrape_time
+)
+import shared  # For updating module-level variables
+from scraper import scrape_and_update, daily_statistics_update, sanitize_document_id
 from config import BRIDGE_KEYS, BRIDGE_DETAILS
-from scraper import sanitize_document_id
 
-connected_clients: list[WebSocket] = []
-main_loop: asyncio.AbstractEventLoop = None
-last_scrape_time: datetime = None  # Tracks when last scrape completed (for health monitoring)
 scheduler = AsyncIOScheduler(timezone=TIMEZONE)
 
 def generate_available_bridges() -> list:
@@ -322,8 +340,8 @@ def initialize_data_files():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global main_loop
-    main_loop = asyncio.get_running_loop()
+    # Set shared state
+    shared.main_loop = asyncio.get_running_loop()
     initialize_data_files()
 
     # Day: every 20s (6AM-10PM), Night: every 30s (10PM-6AM)
@@ -335,6 +353,13 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     scrape_and_update()  # Run immediately
     yield
+    # Graceful shutdown: close all WebSocket connections
+    for client in connected_clients.copy():
+        try:
+            await client.close(code=1001, reason="Server shutting down")
+        except Exception:
+            pass
+    connected_clients.clear()
     scheduler.shutdown(wait=False)
 
 app = FastAPI(lifespan=lifespan)
@@ -395,19 +420,23 @@ def get_bridge(bridge_id: str):
 
 ### CORS (Required for Web Clients)
 
-Add CORS middleware for browser-based clients:
+Add CORS middleware after creating the app. iOS doesn't use CORS (native apps), this is only for web:
 
 ```python
-from fastapi.middleware.cors import CORSMiddleware
-
+# Add after: app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Or restrict to your domains
+    allow_origin_regex=r"https://(www\.)?bridgeup\.app|http://localhost:\d+|http://192\.168\.\d+\.\d+:\d+",
     allow_credentials=True,
     allow_methods=["GET"],
     allow_headers=["*"],
 )
 ```
+
+**Allowed origins:**
+- `https://bridgeup.app` and `https://www.bridgeup.app` (production)
+- `http://localhost:*` (any port, for local dev)
+- `http://192.168.*.*:*` (local network testing)
 
 ### WebSocket Behavior
 - **On connect**: Server sends full state immediately (all bridges)
@@ -616,134 +645,60 @@ def add_expected_duration_to_closures(upcoming_closures: List[Dict[str, Any]]) -
     return upcoming_closures
 ```
 
-**Prediction Test Cases** (to verify logic matches iOS):
-```python
-# test_predictions.py
-from datetime import datetime, timedelta
-from predictions import calculate_prediction
-import pytz
+**Prediction Test Cases** (`test_predictions.py`):
 
-TZ = pytz.timezone('America/Toronto')
-
-def test_closed_commercial_vessel_5min_elapsed():
-    """Commercial vessel, longer=false, closed 5 minutes ago."""
-    now = datetime.now(TZ)
-    last_updated = now - timedelta(minutes=5)
-    stats = {'closure_ci': {'lower': 8, 'upper': 18}}
-    closures = [{'type': 'commercial vessel', 'longer': False, 'time': last_updated}]
-
-    result = calculate_prediction('closed', last_updated, stats, closures, now)
-
-    # expected=15, blended_lower=(15+8)/2=11.5, blended_upper=(15+18)/2=16.5
-    # remaining_lower=11.5-5=6.5, remaining_upper=16.5-5=11.5
-    assert result is not None
-    lower_mins = (datetime.fromisoformat(result['lower']) - now).total_seconds() / 60
-    upper_mins = (datetime.fromisoformat(result['upper']) - now).total_seconds() / 60
-    assert 6 <= lower_mins <= 7  # ~6.5 min
-    assert 11 <= upper_mins <= 12  # ~11.5 min
-
-def test_closed_commercial_vessel_20min_elapsed():
-    """Same bridge, closed 20 minutes ago → longer than usual."""
-    now = datetime.now(TZ)
-    last_updated = now - timedelta(minutes=20)
-    stats = {'closure_ci': {'lower': 8, 'upper': 18}}
-    closures = [{'type': 'commercial vessel', 'longer': False, 'time': last_updated}]
-
-    result = calculate_prediction('closed', last_updated, stats, closures, now)
-    assert result is None  # "Longer than usual"
-
-def test_closed_no_closure_pure_stats():
-    """Closed with no active closure → pure statistics."""
-    now = datetime.now(TZ)
-    last_updated = now - timedelta(minutes=3)
-    stats = {'closure_ci': {'lower': 8, 'upper': 16}}
-
-    result = calculate_prediction('closed', last_updated, stats, [], now)
-
-    # remaining_lower=8-3=5, remaining_upper=16-3=13
-    assert result is not None
-    lower_mins = (datetime.fromisoformat(result['lower']) - now).total_seconds() / 60
-    upper_mins = (datetime.fromisoformat(result['upper']) - now).total_seconds() / 60
-    assert 4.5 <= lower_mins <= 5.5
-    assert 12.5 <= upper_mins <= 13.5
-
-def test_construction_with_end_time():
-    """Construction with known end_time."""
-    now = datetime.now(TZ)
-    end_time = now + timedelta(hours=2)
-    closures = [{'type': 'construction', 'time': now - timedelta(hours=1), 'end_time': end_time}]
-
-    result = calculate_prediction('construction', now, {}, closures, now)
-
-    assert result is not None
-    assert result['lower'] == end_time.isoformat()
-    assert result['upper'] == end_time.isoformat()
-
-def test_construction_without_end_time():
-    """Construction without end_time → unknown."""
-    now = datetime.now(TZ)
-    closures = [{'type': 'construction', 'time': now - timedelta(hours=1), 'end_time': None}]
-
-    result = calculate_prediction('construction', now, {}, closures, now)
-    assert result is None  # "Unknown opening"
-
-def test_closing_soon_with_known_closure():
-    """Closing soon with boat expected in 8 minutes → iOS uses closure.time."""
-    now = datetime.now(TZ)
-    last_updated = now - timedelta(minutes=2)
-    closures = [{'type': 'commercial vessel', 'time': now + timedelta(minutes=8)}]
-
-    result = calculate_prediction('closing soon', last_updated, {}, closures, now)
-    assert result is None  # iOS uses closure.time directly
-
-def test_closing_soon_no_closure_pure_stats():
-    """Closing soon with no closure info → pure statistics."""
-    now = datetime.now(TZ)
-    last_updated = now - timedelta(minutes=4)
-    stats = {'raising_soon_ci': {'lower': 3, 'upper': 8}}
-
-    result = calculate_prediction('closing soon', last_updated, stats, [], now)
-
-    # remaining_lower=3-4<0=0, remaining_upper=8-4=4
-    assert result is not None
-    lower_mins = (datetime.fromisoformat(result['lower']) - now).total_seconds() / 60
-    assert lower_mins < 0.1  # ~0
-    upper_mins = (datetime.fromisoformat(result['upper']) - now).total_seconds() / 60
-    assert 3.5 <= upper_mins <= 4.5
-
-def test_boat_not_started_uses_pure_stats():
-    """Boat expected in future (not started) → pure statistics, not blended."""
-    now = datetime.now(TZ)
-    last_updated = now - timedelta(minutes=2)
-    stats = {'closure_ci': {'lower': 8, 'upper': 16}}
-    closures = [{'type': 'commercial vessel', 'longer': False, 'time': now + timedelta(minutes=5)}]
-
-    result = calculate_prediction('closed', last_updated, stats, closures, now)
-
-    # Should use pure stats since boat hasn't started
-    lower_mins = (datetime.fromisoformat(result['lower']) - now).total_seconds() / 60
-    assert 5.5 <= lower_mins <= 6.5  # Pure stats, not blended
-
-def test_open_status_no_prediction():
-    """Open bridges don't have predictions."""
-    now = datetime.now(TZ)
-    result = calculate_prediction('open', now, {}, [], now)
-    assert result is None
-```
+| Test | Scenario | Expected Result |
+|------|----------|-----------------|
+| `test_closed_commercial_vessel_5min_elapsed` | Commercial vessel, closed 5 min ago | Blended prediction: ~6.5-11.5 min remaining |
+| `test_closed_commercial_vessel_20min_elapsed` | Same bridge, closed 20 min ago | `None` (longer than usual) |
+| `test_closed_no_closure_pure_stats` | Closed, no active closure | Pure stats prediction |
+| `test_construction_with_end_time` | Construction with known end | Returns exact end_time |
+| `test_construction_without_end_time` | Construction, no end_time | `None` (unknown) |
+| `test_closing_soon_with_known_closure` | Boat expected in 8 min | `None` (iOS uses closure.time) |
+| `test_closing_soon_no_closure_pure_stats` | Closing soon, no closure info | Pure stats prediction |
+| `test_boat_not_started_uses_pure_stats` | Boat in future (not started) | Pure stats, not blended |
+| `test_open_status_no_prediction` | Open bridge | `None` (no prediction needed) |
 
 **Implementation Notes:**
 
 1. **Atomic JSON writes**: Prevent corruption by writing to temp file, then rename:
    ```python
-   def atomic_write(path: str, data: dict) -> None:
-       dir_path = os.path.dirname(path)
+   import tempfile
+   import os
+
+   def atomic_write_json(path: str, data: Any) -> None:
+       """Atomically write JSON data to file (crash-safe)."""
+       dir_path = os.path.dirname(path) or "."
        with tempfile.NamedTemporaryFile('w', dir=dir_path, delete=False, suffix='.tmp') as f:
-           json.dump(data, f)
+           json.dump(data, f, default=str)  # default=str handles datetime
            temp_path = f.name
        os.replace(temp_path, path)  # Atomic on POSIX
    ```
 
-2. **File locking for concurrent writes**: Multiple scraper threads update `bridges.json`. Use a lock:
+2. **History files use same atomic pattern**: Each bridge has its own history file, so no locking needed between bridges. Use `atomic_write_json()` for history too:
+   ```python
+   def append_to_history_file(bridge_id: str, entry: dict) -> None:
+       """Append entry to bridge history file (max 300 entries)."""
+       path = f"data/history/{bridge_id}.json"
+
+       # Read existing or start fresh
+       if os.path.exists(path):
+           with open(path) as f:
+               history = json.load(f)
+       else:
+           history = []
+
+       # Prepend new entry (newest first)
+       history.insert(0, entry)
+
+       # Trim to max 300 entries
+       history = history[:300]
+
+       # Atomic write
+       atomic_write_json(path, history)
+   ```
+
+3. **File locking for bridges.json**: Multiple scraper threads update `bridges.json`. Use a lock:
    ```python
    bridges_file_lock = threading.Lock()
 
@@ -757,7 +712,7 @@ def test_open_status_no_prediction():
        broadcast_sync(data)  # Outside lock
    ```
 
-3. **History file format**: Each bridge has `data/history/{bridge_id}.json`:
+4. **History file format**: Each bridge has `data/history/{bridge_id}.json`:
    ```json
    [
      {"id": "Dec21-1430-abcd", "start_time": "2025-12-21T14:30:00-05:00",
@@ -768,11 +723,11 @@ def test_open_status_no_prediction():
    ```
    Sorted newest first. Max 300 entries (pruned during daily stats).
 
-4. **DateTime serialization**: Use `.isoformat()` for all timestamps. Replace `firestore.GeoPoint` with `{"lat": x, "lng": y}`.
+5. **DateTime serialization**: Use `.isoformat()` for all timestamps. Replace `firestore.GeoPoint` with `{"lat": x, "lng": y}`.
 
-5. **Statistics refactor**: Modify `calculate_bridge_statistics()` to accept history list and return stats dict only (remove `doc_ref`, `batch` params). Rewrite `daily_statistics_update()` to read/write JSON files.
+6. **Statistics refactor**: Modify `calculate_bridge_statistics()` to accept history list and return stats dict only (remove `doc_ref`, `batch` params). Rewrite `daily_statistics_update()` to read/write JSON files.
 
-6. **Prediction integration**: In `update_json_and_broadcast()`, before writing to JSON:
+7. **Prediction integration**: In `update_json_and_broadcast()`, before writing to JSON:
    ```python
    from predictions import calculate_prediction, add_expected_duration_to_closures
 
@@ -995,171 +950,30 @@ static func generateInfoText(for bridge: Bridge, currentDate: Date) -> String {
 }
 ```
 
-### iOS Model Changes
+### iOS Schema Reference
 
-Add/update these Swift structs:
+**New/changed types for iOS models:**
 
-```swift
-// MARK: - New Types
+| Type | Fields | Notes |
+|------|--------|-------|
+| `PredictedTime` | `lower: Date`, `upper: Date` | NEW - prediction window |
+| `AvailableBridge` | `id`, `name`, `region_short`, `region` | NEW - replaces hardcoded list |
+| `BridgeData` | `static: StaticBridgeData`, `live: LiveBridgeData` | Wrapper with JSON keys `"static"`/`"live"` |
+| `LiveBridgeData` | Add `predicted: PredictedTime?` | NEW field |
+| `UpcomingClosure` | Add `expected_duration_minutes: Int?` | NEW field |
+| `BridgeResponse` | `last_updated`, `available_bridges`, `bridges` | Top-level response |
 
-struct PredictedTime: Codable {
-    let lower: Date
-    let upper: Date
-}
-
-struct AvailableBridge: Codable, Identifiable {
-    let id: String
-    let name: String
-    let regionShort: String
-    let region: String  // Full name for SettingsView grouping
-
-    enum CodingKeys: String, CodingKey {
-        case id, name, region
-        case regionShort = "region_short"
-    }
-}
-
-// MARK: - Bridge Data (static/live wrapper)
-
-struct BridgeData: Codable {
-    let staticData: StaticBridgeData
-    let liveData: LiveBridgeData
-
-    enum CodingKeys: String, CodingKey {
-        case staticData = "static"
-        case liveData = "live"
-    }
-}
-
-struct StaticBridgeData: Codable {
-    let name: String
-    let region: String
-    let regionShort: String
-    let coordinates: Coordinates
-    let statistics: BridgeStatistics
-
-    enum CodingKeys: String, CodingKey {
-        case name, region, coordinates, statistics
-        case regionShort = "region_short"
-    }
-}
-
-struct LiveBridgeData: Codable {
-    var status: String
-    var lastUpdated: Date
-    var upcomingClosures: [UpcomingClosure]?
-    var predicted: PredictedTime?  // NEW: single field for all predictions
-
-    enum CodingKeys: String, CodingKey {
-        case status
-        case lastUpdated = "last_updated"
-        case upcomingClosures = "upcoming_closures"
-        case predicted
-    }
-}
-
-struct UpcomingClosure: Codable, Identifiable {
-    var id: String { "\(type)-\(time)" }
-    let type: String
-    let time: Date
-    let longer: Bool
-    let endTime: Date?
-    let expectedDurationMinutes: Int?  // NEW
-
-    enum CodingKeys: String, CodingKey {
-        case type, time, longer
-        case endTime = "end_time"
-        case expectedDurationMinutes = "expected_duration_minutes"
-    }
-}
-
-struct Coordinates: Codable {
-    let lat: Double
-    let lng: Double
-}
-
-struct BridgeStatistics: Codable {
-    let averageClosureDuration: Int
-    let closureCi: ConfidenceInterval
-    let averageRaisingSoon: Int
-    let raisingSoonCi: ConfidenceInterval
-    let closureDurations: ClosureDurations
-    let totalEntries: Int
-
-    enum CodingKeys: String, CodingKey {
-        case averageClosureDuration = "average_closure_duration"
-        case closureCi = "closure_ci"
-        case averageRaisingSoon = "average_raising_soon"
-        case raisingSoonCi = "raising_soon_ci"
-        case closureDurations = "closure_durations"
-        case totalEntries = "total_entries"
-    }
-}
-
-struct ConfidenceInterval: Codable {
-    let lower: Int
-    let upper: Int
-}
-
-struct ClosureDurations: Codable {
-    let under9m: Int
-    let tenTo15m: Int
-    let sixteenTo30m: Int
-    let thirtyOneTo60m: Int
-    let over60m: Int
-
-    enum CodingKeys: String, CodingKey {
-        case under9m = "under_9m"
-        case tenTo15m = "10_15m"
-        case sixteenTo30m = "16_30m"
-        case thirtyOneTo60m = "31_60m"
-        case over60m = "over_60m"
-    }
-}
-
-// MARK: - API Response
-
-struct BridgeResponse: Codable {
-    let lastUpdated: String?
-    let availableBridges: [AvailableBridge]  // NEW: replaces hardcoded list
-    let bridges: [String: BridgeData]
-
-    enum CodingKeys: String, CodingKey {
-        case lastUpdated = "last_updated"
-        case availableBridges = "available_bridges"
-        case bridges
-    }
-}
-```
-
-### Fallback polling (optional)
-```swift
-func fetchBridges() async throws -> BridgeResponse {
-    let url = URL(string: "https://api.bridgeup.app/bridges")!
-    let (data, _) = try await URLSession.shared.data(from: url)
-    return try JSONDecoder().decode(BridgeResponse.self, from: data)
-}
-```
+**Key JSON mappings:**
+- `region_short` (snake_case in JSON → `regionShort` in Swift)
+- `last_updated`, `upcoming_closures`, `end_time`, `expected_duration_minutes` (all snake_case)
 
 ### iOS Implementation Notes
 
-1. **Ping heartbeat**: Send ping every 30s to detect dead connections faster than TCP timeout:
-   ```swift
-   private var pingTimer: Timer?
-
-   private func startPingTimer() {
-       pingTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-           self?.task?.sendPing { error in
-               if error != nil {
-                   self?.reconnect()
-               }
-           }
-       }
-   }
-   ```
+1. **Ping heartbeat**: Send ping every 30s to detect dead connections faster than TCP timeout
 2. **Background/foreground**: Disconnect on background, reconnect on foreground via NotificationCenter
 3. **Exponential backoff**: On disconnect, wait 1s → 2s → 4s → ... → 60s (cap) before reconnecting
 4. **Remove hardcoded bridge list**: Use `availableBridges` from backend response
+5. **Fallback polling**: `GET /bridges` returns same structure as WebSocket messages
 
 ---
 
@@ -1278,35 +1092,6 @@ app = FastAPI(
 
 Access at: `https://api.bridgeup.app/docs`
 
-### Future Considerations (Optional)
-
-These aren't needed for v2 launch but useful if you expand:
-
-**API Versioning** (if breaking changes needed):
-```
-/v2/bridges  → current
-/v3/bridges  → future breaking changes
-```
-
-**Rate Limiting** (if abuse occurs):
-```python
-# Add to Caddyfile
-api.bridgeup.app {
-    rate_limit {
-        zone api {
-            key {remote_host}
-            events 60
-            window 1m
-        }
-    }
-    reverse_proxy bridgeup-app:8000
-}
-```
-
-**Metrics/Monitoring** (for debugging):
-- Prometheus endpoint at `/metrics`
-- Track: requests/sec, WebSocket connections, scrape latency
-
 ---
 
 ## Deployment
@@ -1400,25 +1185,31 @@ Now every push to main auto-deploys.
 ## Migration Checklist
 
 ### Backend
-- [ ] Create `main.py` with `available_bridges` generation
-- [ ] Create `predictions.py` with `calculate_prediction()` (logic moved from iOS)
-- [ ] Refactor `scraper.py`: replace `update_firestore()` and `update_bridge_history()`
-- [ ] Add `predicted` field to bridge data before broadcast
-- [ ] Add `expected_duration_minutes` to closure objects
-- [ ] Refactor `stats_calculator.py`: remove Firestore params
-- [ ] Update `Dockerfile` and `requirements.txt`
-- [ ] Add CORS middleware for web clients
-- [ ] Update tests, add prediction tests
-- [ ] Test locally with `uvicorn main:app --reload`
+- [x] Create `shared.py` (shared state, avoids circular imports)
+- [x] Create `main.py` with FastAPI, WebSocket, scheduler, CORS
+- [x] Create `predictions.py` with `calculate_prediction()` (logic moved from iOS)
+- [x] Refactor `scraper.py`: replace `update_firestore()` → `update_json_and_broadcast()`
+- [x] Refactor `scraper.py`: replace `update_bridge_history()` → `update_history()` + `append_to_history_file()`
+- [x] Refactor `scraper.py`: import from `shared.py` instead of defining state locally
+- [x] Add `predicted` field to bridge data before broadcast
+- [x] Add `expected_duration_minutes` to closure objects
+- [x] Refactor `stats_calculator.py`: remove Firestore params, return stats dict only
+- [x] Update `Dockerfile` (uvicorn instead of waitress, port 8000)
+- [x] Update `requirements.txt` (add fastapi, uvicorn; remove firebase-admin, waitress)
+- [x] Update tests, add prediction tests (20+ new tests)
+- [x] All tests pass (9 test files, 100% pass rate)
 
 ### Deploy
-- [ ] Setup Vultr VPS + Docker + `docker network create web`
+- [x] Setup Vultr VPS + Docker + `docker network create web`
+- [x] Point DNS (`api.bridgeup.app` → VPS IP)
+- [x] Create `docker-compose.yml` and `Caddyfile`
 - [ ] Deploy with `docker compose up -d`
-- [ ] Point domain, verify SSL works
+- [ ] Verify SSL works (Caddy auto-provisions)
 - [ ] Verify scraping + WebSocket broadcasts
 - [ ] Verify predictions in JSON output
+- [ ] Run initial statistics calculation
 
-### iOS
+### iOS (handled by iOS team after backend is ready)
 - [ ] Remove Firebase SDK
 - [ ] Remove hardcoded bridge list (use `availableBridges` from backend)
 - [ ] Remove ~200 lines of prediction logic from `BridgeInfoGenerator.swift`
@@ -1446,17 +1237,24 @@ Now every push to main auto-deploys.
 
 ## Rollback Plan
 
-**Transition period**: Keep Firebase scraper running for 2 weeks after new backend is stable.
+**No parallel operation** - Hard cutover from Firebase to self-hosted.
 
-- Both systems run in parallel (same source data, no conflicts)
-- Old iOS versions continue working via Firebase
-- New iOS version uses WebSocket
-- After 2 weeks with no issues, shut down Firebase scraper
-- Firebase data retained indefinitely (read-only) as backup
+**Pre-launch (current state):**
+- Old Firebase scraper continues running during development
+- New backend developed and tested locally/staging
+- iOS app updated to use WebSocket (still in dev)
 
-**If issues arise**:
-- iOS can ship hotfix pointing back to Firebase
-- No data loss (Firebase still has everything)
+**Launch day:**
+1. Deploy new backend to VPS
+2. Verify scraping + WebSocket working
+3. Submit iOS app update (already pointing to new backend)
+4. Stop old Firebase scraper (optional - no cost if no writes)
+
+**If issues arise post-launch:**
+- Fix forward (no Firebase fallback)
+- Backend issues: SSH into VPS, fix, redeploy
+- iOS issues: Submit hotfix update
+- Firebase data remains read-only as historical reference (no active use)
 
 ---
 
@@ -1466,7 +1264,7 @@ Now every push to main auto-deploys.
 |----------|--------|
 | Final domain? | ✅ `api.bridgeup.app` (WS: `wss://api.bridgeup.app/ws`) |
 | Rate limiting on `/bridges`? | ✅ None initially. Can add via Caddy if needed. |
-| Transition period? | ✅ 2 weeks parallel operation (see Rollback Plan) |
+| Transition period? | ✅ No parallel operation - hard cutover (see Rollback Plan) |
 | Status field casing? | ✅ Confirmed - iOS handles capitalized values via `.lowercased()` |
 | Schema compatibility? | ✅ Confirmed - iOS decodes by key name, order doesn't matter |
 

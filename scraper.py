@@ -1,6 +1,10 @@
-#scraper.py
-import firebase_admin
-from firebase_admin import credentials, initialize_app, firestore
+# scraper.py
+"""
+Bridge data scraper for St. Lawrence Seaway.
+
+Scrapes bridge status from JSON APIs, stores in JSON files, and broadcasts
+updates via WebSocket. Migrated from Firebase to self-hosted storage.
+"""
 import requests
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional, Any
@@ -12,52 +16,50 @@ import random
 import string
 import os
 import sys
+import json
+import tempfile
 import concurrent.futures
 import threading
+
 from config import BRIDGE_KEYS, BRIDGE_DETAILS, OLD_JSON_ENDPOINT, NEW_JSON_ENDPOINT
-from cachetools import TTLCache
 from stats_calculator import calculate_bridge_statistics
+from predictions import calculate_prediction, add_expected_duration_to_closures, parse_datetime
 from loguru import logger
 
+# Import shared state
+import shared
+from shared import (
+    TIMEZONE,
+    last_known_state, last_known_state_lock,
+    region_failures, region_failures_lock,
+    endpoint_cache, endpoint_cache_lock,
+    bridges_file_lock
+)
+
 # Configure logger for cleaner output
-logger.remove()  # Remove default handler
+logger.remove()
 logger.add(
     sys.stderr,
     format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
     level="INFO",
-    enqueue=False,    # Ensures immediate output in Docker logs
-    colorize=False    # Disable colors for Docker (containers don't support ANSI colors)
+    enqueue=False,
+    colorize=False  # Disable colors for Docker
 )
 
 
-# Get Firebase creds
-if os.environ.get('DOCKER_ENV'):
-    cred_path = '/app/data/firebase-auth.json'
-else:
-    cred_path = os.path.join(os.path.dirname(__file__), 'firebase-auth.json')
+def atomic_write_json(path: str, data: Any) -> None:
+    """
+    Atomically write JSON data to file (crash-safe).
 
-# Initialize Firebase
-cred = credentials.Certificate(cred_path)
-firebase_admin.initialize_app(cred)
-db = firestore.client()
+    Writes to temp file first, then renames. This prevents corruption
+    if the process crashes mid-write.
+    """
+    dir_path = os.path.dirname(path) or "."
+    with tempfile.NamedTemporaryFile('w', dir=dir_path, delete=False, suffix='.tmp') as f:
+        json.dump(data, f, default=str, indent=2)
+        temp_path = f.name
+    os.replace(temp_path, path)  # Atomic on POSIX
 
-# Timezone for New York / Toronto
-TIMEZONE = pytz.timezone('America/Toronto')
-
-# Store last known state
-last_known_state = {}
-last_known_state_lock = threading.Lock()
-
-# Smart backoff tracking - WITH THREAD SAFETY
-region_failures = {}  # url -> (failure_count, next_retry_time)
-region_failures_lock = threading.Lock()
-
-# Caching TTL
-last_known_open_times = TTLCache(maxsize=1000, ttl=10800)  # 3 hours TTL for bridges
-
-# Smart endpoint caching - auto-discovers which endpoint works for each region
-endpoint_cache: Dict[str, str] = {}  # {'BridgeSCT': 'old', 'BridgeSBS': 'new'}
-endpoint_cache_lock = threading.Lock()
 
 def parse_date(date_str: str) -> Tuple[Optional[datetime], bool]:
     """
@@ -89,7 +91,6 @@ def parse_date(date_str: str) -> Tuple[Optional[datetime], bool]:
     # Check for ISO datetime format (2025-12-20T11:51:00 or 2025-12-20T11:51:00Z)
     if 'T' in str(date_str):
         try:
-            # Handle Z suffix and +00:00 timezone
             clean_str = str(date_str).replace('Z', '+00:00')
             closure_time = datetime.fromisoformat(clean_str)
             return closure_time.astimezone(TIMEZONE), False
@@ -101,9 +102,9 @@ def parse_date(date_str: str) -> Tuple[Optional[datetime], bool]:
     if time_match:
         time_str, asterisk = time_match.groups()
         now = datetime.now(TIMEZONE)
-        closure_time = TIMEZONE.localize(datetime.combine(now.date(), datetime.strptime(time_str, '%H:%M').time()))
-
-        # Handle * for longer closures
+        closure_time = TIMEZONE.localize(
+            datetime.combine(now.date(), datetime.strptime(time_str, '%H:%M').time())
+        )
         longer = bool(asterisk)
         return closure_time, longer
 
@@ -148,15 +149,7 @@ def parse_old_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Parse JSON response from old API format.
 
-    This format is used by SCT, PC, and MSS regions. Contains:
-    - bridgeModelList: Live bridge status with vessel ETAs
-    - bridgeClosureList: Planned construction closures
-
-    Args:
-        json_data: Raw JSON response from API
-
-    Returns:
-        List of bridge dicts with {name, raw_status, upcoming_closures}
+    This format is used by SCT, PC, MSS, and K regions.
     """
     bridges = []
     bridge_models = json_data.get('bridgeModelList', [])
@@ -167,7 +160,7 @@ def parse_old_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         name = bridge_model.get('address', '').strip()
         status = bridge_model.get('status', 'Unknown').strip()
 
-        # Extract vessel ETA if available (upcoming closure)
+        # Extract vessel ETA if available
         upcoming_closures = []
         vessel_eta = bridge_model.get('vessel1ETA', '').strip()
         if vessel_eta and vessel_eta != '----':
@@ -190,16 +183,12 @@ def parse_old_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     for closure in bridge_closures:
         bridge_name = closure.get('bridgeAddress', '').strip()
         closure_period = closure.get('closureP', '')
-        reason = closure.get('reason', 'Construction')
         is_continuous = closure.get('continuousHour', 'Y') == 'Y'
 
         if not closure_period:
             continue
 
         try:
-            # Parse closureP format: "DEC 22, 2025 - DEC 23, 2025, 08:00 - 17:00"
-            # or single day: "DEC 22, 2025 - DEC 22, 2025, 09:00 - 12:00"
-            import re
             match = re.match(
                 r'([A-Z]{3} \d{1,2}, \d{4}) - ([A-Z]{3} \d{1,2}, \d{4}), (\d{2}:\d{2}) - (\d{2}:\d{2})',
                 closure_period
@@ -209,17 +198,12 @@ def parse_old_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
                 continue
 
             start_date_str, end_date_str, start_time_str, end_time_str = match.groups()
-
-            # Parse dates: "DEC 22, 2025"
             start_date = datetime.strptime(start_date_str, '%b %d, %Y')
             end_date = datetime.strptime(end_date_str, '%b %d, %Y')
-
-            # Parse times
             start_hour, start_min = map(int, start_time_str.split(':'))
             end_hour, end_min = map(int, end_time_str.split(':'))
 
             if is_continuous:
-                # Continuous closure: single entry from start datetime to end datetime
                 start_time = TIMEZONE.localize(start_date.replace(hour=start_hour, minute=start_min))
                 end_time = TIMEZONE.localize(end_date.replace(hour=end_hour, minute=end_min))
 
@@ -230,20 +214,16 @@ def parse_old_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
                         'end_time': end_time,
                         'longer': False
                     }
-
                     for bridge in bridges:
                         if bridge['name'] == bridge_name:
                             bridge['upcoming_closures'].append(planned_closure)
                             break
             else:
-                # Non-continuous: daily time window repeated for each day in range
-                # e.g., "DEC 22 - DEC 23, 08:00 - 17:00" means 8am-5pm on Dec 22 AND 8am-5pm on Dec 23
                 current_date = start_date
                 while current_date <= end_date:
                     day_start = TIMEZONE.localize(current_date.replace(hour=start_hour, minute=start_min))
                     day_end = TIMEZONE.localize(current_date.replace(hour=end_hour, minute=end_min))
 
-                    # Only add future or ongoing closures
                     if day_end > current_time:
                         planned_closure = {
                             'type': 'Construction',
@@ -251,15 +231,14 @@ def parse_old_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
                             'end_time': day_end,
                             'longer': False
                         }
-
                         for bridge in bridges:
                             if bridge['name'] == bridge_name:
                                 bridge['upcoming_closures'].append(planned_closure)
                                 break
-
                     current_date += timedelta(days=1)
+
         except (ValueError, AttributeError) as e:
-            logger.warning(f"Failed to parse closure closureP: {closure_period} - {e}")
+            logger.warning(f"Failed to parse closure: {closure_period} - {e}")
             continue
 
     return bridges
@@ -269,14 +248,7 @@ def parse_new_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Parse JSON response from new API format.
 
-    This format is used by SBS region. Contains:
-    - bridgeStatusList: Bridge status with lift list and maintenance list
-
-    Args:
-        json_data: Raw JSON response from API
-
-    Returns:
-        List of bridge dicts with {name, raw_status, upcoming_closures}
+    This format is used by SBS region.
     """
     bridges = []
     bridge_statuses = json_data.get('bridgeStatusList', [])
@@ -284,8 +256,6 @@ def parse_new_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     for bridge_status in bridge_statuses:
         name = bridge_status.get('address', '').strip()
-
-        # New format has status3 as the combined status
         status = bridge_status.get('status3', '').strip()
         if not status:
             status = bridge_status.get('status', 'Unknown').strip()
@@ -298,14 +268,12 @@ def parse_new_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
             eta_str = lift.get('eta', '').strip()
             if eta_str:
                 closure_time, _ = parse_date(eta_str)
-
-                # Only add future closures
                 if closure_time and closure_time > current_time:
                     lift_type = lift.get('type', 'a')
                     upcoming_closures.append({
                         'type': 'Next Arrival' if lift_type == 'a' else 'Commercial Vessel',
                         'time': closure_time,
-                        'longer': False  # New format doesn't have asterisk notation
+                        'longer': False
                     })
 
         # Parse maintenance closures
@@ -319,12 +287,10 @@ def parse_new_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
 
             try:
                 start_time, _ = parse_date(close_date_str)
-
                 end_time = None
                 if close_date_to:
                     end_time, _ = parse_date(close_date_to)
 
-                # Only add future closures
                 if start_time and (not end_time or end_time > current_time):
                     upcoming_closures.append({
                         'type': 'Construction',
@@ -348,23 +314,10 @@ def parse_new_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
 def scrape_bridge_data(bridge_key: str, timeout: int = 10, retries: int = 3) -> List[Dict[str, Any]]:
     """
     Fetch bridge data from JSON API with smart endpoint caching.
-
-    Tries cached endpoint first, falls back to other endpoint if needed.
-    Auto-discovers and remembers which endpoint works for each region.
-
-    Args:
-        bridge_key: The bridge region key (e.g., 'BridgeSCT')
-        timeout: Request timeout in seconds
-        retries: Number of retry attempts per endpoint
-
-    Returns:
-        List of bridge dicts with {name, raw_status, upcoming_closures}
     """
-    # Get cached endpoint preference
     with endpoint_cache_lock:
         cached = endpoint_cache.get(bridge_key, 'old')
 
-    # Define endpoint order based on cache
     if cached == 'new':
         endpoints = [
             ('new', NEW_JSON_ENDPOINT, parse_new_json, 'bridgeStatusList'),
@@ -381,14 +334,12 @@ def scrape_bridge_data(bridge_key: str, timeout: int = 10, retries: int = 3) -> 
         data = fetch_json_endpoint(url, timeout, retries)
 
         if data and data.get(data_key):
-            # Update cache on success
             with endpoint_cache_lock:
                 if endpoint_cache.get(bridge_key) != endpoint_type:
                     logger.info(f"{bridge_key}: Discovered {endpoint_type} endpoint works")
                     endpoint_cache[bridge_key] = endpoint_type
             return parser(data)
 
-        # Check if old endpoint returned new format
         if data and endpoint_type == 'old' and data.get('bridgeStatusList'):
             with endpoint_cache_lock:
                 endpoint_cache[bridge_key] = 'new'
@@ -399,12 +350,14 @@ def scrape_bridge_data(bridge_key: str, timeout: int = 10, retries: int = 3) -> 
     return []
 
 
-def interpret_bridge_status(bridge_data):
+def interpret_bridge_status(bridge_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Interpret raw bridge status into normalized status values.
+    """
     name = bridge_data['name']
     raw_status = bridge_data['raw_status'].lower()
     upcoming_closures = bridge_data.get('upcoming_closures', [])
 
-    # Data unavailable is message returned for new style bridges if service is down
     if "data unavailable" in raw_status:
         return {
             "name": name,
@@ -413,7 +366,6 @@ def interpret_bridge_status(bridge_data):
             "raw_status": bridge_data['raw_status'],
             "upcoming_closures": upcoming_closures
         }
-
 
     available = "available" in raw_status and "unavailable" not in raw_status
     status = "Unknown"
@@ -424,7 +376,6 @@ def interpret_bridge_status(bridge_data):
         else:
             status = "Open"
     elif "unavailable" in raw_status:
-        # Handle specific unavailable statuses
         if "lowering" in raw_status:
             status = "Opening"
         elif "raising" in raw_status:
@@ -434,7 +385,6 @@ def interpret_bridge_status(bridge_data):
         else:
             status = "Closed"
     else:
-        # No "available" or "unavailable" in status - this is garbage data
         status = "Unknown"
 
     return {
@@ -445,7 +395,11 @@ def interpret_bridge_status(bridge_data):
         "upcoming_closures": upcoming_closures
     }
 
-def interpret_tracked_status(raw_status):
+
+def interpret_tracked_status(raw_status: str) -> str:
+    """
+    Convert raw status to tracked status for history.
+    """
     raw_status = raw_status.lower()
     if "data unavailable" in raw_status:
         return "Unknown"
@@ -459,193 +413,353 @@ def interpret_tracked_status(raw_status):
     else:
         return "Unavailable (Closed)"
 
-def sanitize_document_id(shortcut, doc_id):
-    # Normalize unicode characters to their closest ASCII representation
-    normalized_doc_id = unicodedata.normalize('NFKD', doc_id).encode('ASCII', 'ignore').decode('ASCII')
-    # Remove all non-letter characters
-    letters_only_doc_id = re.sub(r'[^a-zA-Z]', '', normalized_doc_id)
-    # Truncate to the first 10 characters
-    truncated_doc_id = letters_only_doc_id[:25]
-    # Combine shortcut and truncated ID
-    sanitized_doc_id = f"{shortcut}_{truncated_doc_id}"
-    return sanitized_doc_id
 
-def generate_history_doc_id(current_time):
-    # Generated as Jul15-1325-abcd (month date - event start time - 4 random letters)
+def sanitize_document_id(shortcut: str, doc_id: str) -> str:
+    """
+    Create a sanitized document ID from bridge shortform and name.
+    """
+    normalized_doc_id = unicodedata.normalize('NFKD', doc_id).encode('ASCII', 'ignore').decode('ASCII')
+    letters_only_doc_id = re.sub(r'[^a-zA-Z]', '', normalized_doc_id)
+    truncated_doc_id = letters_only_doc_id[:25]
+    return f"{shortcut}_{truncated_doc_id}"
+
+
+def generate_history_doc_id(current_time: datetime) -> str:
+    """
+    Generate unique history entry ID.
+    """
     formatted_time = current_time.strftime('%b%d-%H%M')
     unique_id = ''.join(random.choices(string.ascii_lowercase, k=4))
     return f"{formatted_time}-{unique_id}"
 
-def update_bridge_history(doc_ref, new_status, current_time, batch):
-    history_query = doc_ref.collection('history').order_by('start_time', direction=firestore.Query.DESCENDING).limit(1)
-    history_docs = history_query.get()
-    
+
+def append_to_history_file(bridge_id: str, entry: Dict[str, Any]) -> None:
+    """
+    Append entry to bridge history file (max 300 entries).
+
+    Replaces Firestore subcollection with JSON file.
+    """
+    path = f"data/history/{bridge_id}.json"
+
+    # Read existing or start fresh
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                history = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            history = []
+    else:
+        history = []
+
+    # Prepend new entry (newest first)
+    history.insert(0, entry)
+
+    # Trim to max 300 entries
+    history = history[:300]
+
+    # Atomic write
+    atomic_write_json(path, history)
+
+
+def update_history(bridge_id: str, new_status: str, current_time: datetime, old_status: Optional[str] = None) -> None:
+    """
+    Update bridge history when status changes.
+
+    Replaces update_bridge_history() for Firestore.
+    """
+    path = f"data/history/{bridge_id}.json"
+
+    # Read existing history
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                history = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            history = []
+    else:
+        history = []
+
     doc_id = generate_history_doc_id(current_time)
 
-    if not history_docs:
-        new_history = {
-            'start_time': current_time,
+    if not history:
+        # No history - create first entry
+        new_entry = {
+            'id': doc_id,
+            'start_time': current_time.isoformat(),
             'end_time': None,
             'status': new_status,
             'duration': None
         }
-        batch.set(doc_ref.collection('history').document(doc_id), new_history)
+        history.insert(0, new_entry)
     else:
-        last_history = history_docs[0]
-        last_history_data = last_history.to_dict()
-
-        if last_history_data['status'] != new_status:
+        last_entry = history[0]
+        if last_entry.get('status') != new_status:
+            # Status changed - close old entry, create new one
             end_time = current_time
-            duration = round((end_time - last_history_data['start_time']).total_seconds())
+            start_time = parse_datetime(last_entry.get('start_time'))
+            if start_time:
+                duration = round((end_time - start_time).total_seconds())
+            else:
+                duration = None
 
-            batch.update(last_history.reference, {
-                'end_time': end_time,
-                'duration': duration
-            })
+            # Update last entry
+            last_entry['end_time'] = end_time.isoformat()
+            last_entry['duration'] = duration
 
-            new_history = {
-                'start_time': current_time,
+            # Create new entry
+            new_entry = {
+                'id': doc_id,
+                'start_time': current_time.isoformat(),
                 'end_time': None,
                 'status': new_status,
                 'duration': None
             }
-            batch.set(doc_ref.collection('history').document(doc_id), new_history)
+            history.insert(0, new_entry)
 
-def daily_statistics_update():
-    bridges = db.collection('bridges').get()
-    batch = db.batch()
-    
-    for bridge in bridges:
-        doc_ref = bridge.reference
-        
-        # Get all history entries
-        history = doc_ref.collection('history').order_by('start_time', direction=firestore.Query.DESCENDING).get()
-        
-        # print(f"\nProcessing bridge: {doc_ref.id}")
-        # print(f"Total history entries: {len(history)}")
-        
-        # Calculate statistics and optimize history in one pass
-        history_data = [{'id': entry.id, **entry.to_dict()} for entry in history]
-        stats, operation_count, updated_batch = calculate_bridge_statistics(history_data, doc_ref, batch)
-        
-        # Update statistics in the main bridge document
-        updated_batch.update(doc_ref, {'statistics': stats})
+    # Trim to max 300 entries
+    history = history[:300]
 
-        # Always commit - statistics update needs to be saved
-        updated_batch.commit()
-    
-    # print("Daily statistics update completed")
+    # Atomic write
+    atomic_write_json(path, history)
 
-def update_firestore(bridges, region, shortform):
-    global last_known_state
-    batch = db.batch()
-    update_needed = False
+
+def update_json_and_broadcast(bridges: List[Dict[str, Any]], region: str, shortform: str) -> None:
+    """
+    Update bridges.json and broadcast to WebSocket clients.
+
+    Replaces update_firestore() for Firebase.
+    """
+    # Import broadcast function (avoid circular import at module level)
+    try:
+        from main import broadcast_sync, AVAILABLE_BRIDGES
+    except ImportError:
+        # Running standalone (e.g., for testing)
+        broadcast_sync = lambda x: None
+        AVAILABLE_BRIDGES = []
+
+    current_time = datetime.now(TIMEZONE)
+    updates_made = False
 
     for bridge in bridges:
         doc_id = sanitize_document_id(shortform, bridge['name'])
-        doc_ref = db.collection('bridges').document(doc_id)
+        interpreted = interpret_bridge_status(bridge)
 
-        current_time = datetime.now(TIMEZONE)
-        interpreted_status = interpret_bridge_status(bridge)
+        # Serialize upcoming_closures with expected_duration_minutes
+        closures = add_expected_duration_to_closures([
+            {
+                'type': c['type'],
+                'time': c['time'].isoformat() if isinstance(c['time'], datetime) else c['time'],
+                'longer': c['longer'],
+                'end_time': c.get('end_time').isoformat() if isinstance(c.get('end_time'), datetime) else c.get('end_time')
+            }
+            for c in bridge['upcoming_closures']
+        ])
 
+        # Get coordinates from config
+        coords = BRIDGE_DETAILS.get(region, {}).get(bridge['name'], {})
+
+        # Get existing statistics (if any)
+        with last_known_state_lock:
+            existing = last_known_state.get(doc_id, {})
+        existing_stats = existing.get('static', {}).get('statistics', {})
+        existing_last_updated = existing.get('live', {}).get('last_updated')
+
+        # Build new data structure (matching migration plan schema)
         new_data = {
-            'name': bridge['name'],
-            'region': region,
-            'region_short': shortform,
-            'coordinates': firestore.GeoPoint(
-                BRIDGE_DETAILS.get(region, {}).get(bridge['name'], {}).get('lat', 0),
-                BRIDGE_DETAILS.get(region, {}).get(bridge['name'], {}).get('lng', 0)
-            ),
+            'static': {
+                'name': bridge['name'],
+                'region': region,
+                'region_short': shortform,
+                'coordinates': {
+                    'lat': coords.get('lat', 0),
+                    'lng': coords.get('lng', 0)
+                },
+                'statistics': existing_stats if existing_stats else {
+                    'average_closure_duration': 0,
+                    'closure_ci': {'lower': 8, 'upper': 16},
+                    'average_raising_soon': 0,
+                    'raising_soon_ci': {'lower': 3, 'upper': 8},
+                    'closure_durations': {
+                        'under_9m': 0, '10_15m': 0, '16_30m': 0, '31_60m': 0, 'over_60m': 0
+                    },
+                    'total_entries': 0
+                }
+            },
             'live': {
-                'available': interpreted_status['available'],
-                'raw_status': bridge['raw_status'],
-                'status': interpreted_status['status'],
-                'upcoming_closures': [
-                    {
-                        'type': closure['type'],
-                        'time': closure['time'],
-                        'longer': closure['longer'],
-                        'end_time': closure.get('end_time')
-                    }
-                    for closure in bridge['upcoming_closures']
-                ]
+                'status': interpreted['status'],
+                'last_updated': current_time.isoformat(),
+                'upcoming_closures': closures
             }
         }
 
-        # Check if we need to fetch existing data - THREAD SAFE
+        # Check if status actually changed
         with last_known_state_lock:
             doc_id_not_cached = doc_id not in last_known_state
-        
+
         if doc_id_not_cached:
-            try:
-                existing_doc = doc_ref.get()
-            except Exception as e:
-                logger.error(f"✗ Failed to read {doc_id}: {str(e)[:50]}...")
-                existing_doc = None
-            
-            if existing_doc and existing_doc.exists:
-                existing_data = existing_doc.to_dict()
-                if 'statistics' in existing_data:
-                    new_data['statistics'] = existing_data['statistics']
-                if 'live' in existing_data and 'last_updated' in existing_data['live']:
-                    new_data['live']['last_updated'] = existing_data['live']['last_updated']
-                else:
-                    new_data['live']['last_updated'] = current_time
-            else:
-                new_data['live']['last_updated'] = current_time
-            update_needed = True
-            batch.set(doc_ref, new_data)
-            
-            # Update cache - THREAD SAFE
+            # First time seeing this bridge
+            updates_made = True
+
+            # Calculate prediction
+            prediction = calculate_prediction(
+                status=new_data['live']['status'],
+                last_updated=current_time,
+                statistics=new_data['static']['statistics'],
+                upcoming_closures=closures,
+                current_time=current_time
+            )
+            new_data['live']['predicted'] = prediction
+
             with last_known_state_lock:
                 last_known_state[doc_id] = copy.deepcopy(new_data)
         else:
-            # Get old data - THREAD SAFE
             with last_known_state_lock:
                 old_data = copy.deepcopy(last_known_state[doc_id])
-            
-            old_live = {k: v for k, v in old_data['live'].items() if k != 'last_updated'}
-            new_live = {k: v for k, v in new_data['live'].items() if k != 'last_updated'}
 
-            if new_live != old_live:
-                update_needed = True
-                new_data['live']['last_updated'] = current_time
-                batch.set(doc_ref, {'live': new_data['live']}, merge=True)
-                
-                if new_data['live']['raw_status'] != old_data['live']['raw_status']:
-                    update_bridge_history(doc_ref, interpret_tracked_status(new_data['live']['raw_status']), current_time, batch)
-                    if new_data['live']['available']:
-                        last_known_open_times[doc_id] = current_time
-                
-                # Update cache - THREAD SAFE
+            # Compare live data (excluding timestamps)
+            old_live_compare = {k: v for k, v in old_data.get('live', {}).items()
+                               if k not in ('last_updated', 'predicted')}
+            new_live_compare = {k: v for k, v in new_data['live'].items()
+                               if k not in ('last_updated', 'predicted')}
+
+            if new_live_compare != old_live_compare:
+                updates_made = True
+
+                # Status changed - update history
+                old_raw = bridge['raw_status']
+                update_history(
+                    doc_id,
+                    interpret_tracked_status(old_raw),
+                    current_time
+                )
+
+                # Calculate prediction
+                prediction = calculate_prediction(
+                    status=new_data['live']['status'],
+                    last_updated=current_time,
+                    statistics=new_data['static']['statistics'],
+                    upcoming_closures=closures,
+                    current_time=current_time
+                )
+                new_data['live']['predicted'] = prediction
+
                 with last_known_state_lock:
-                    last_known_state[doc_id]['live'] = copy.deepcopy(new_data['live'])
+                    last_known_state[doc_id] = copy.deepcopy(new_data)
             else:
-                new_data['live']['last_updated'] = old_data['live']['last_updated']
+                # No change - keep old timestamp and prediction
+                new_data['live']['last_updated'] = old_data['live'].get('last_updated', current_time.isoformat())
+                new_data['live']['predicted'] = old_data['live'].get('predicted')
 
-    if update_needed:
-        try:
-            batch.commit()
-        except Exception as e:
-            logger.error(f"✗ Firebase batch failed for {region}: {str(e)[:50]}...")
-            raise
+                with last_known_state_lock:
+                    last_known_state[doc_id] = copy.deepcopy(new_data)
 
-# Can trigger externally as well:
+    # Write to JSON file and broadcast if changes made
+    if updates_made:
+        with bridges_file_lock:
+            # Read current file
+            if os.path.exists("data/bridges.json"):
+                with open("data/bridges.json") as f:
+                    data = json.load(f)
+            else:
+                data = {"last_updated": None, "available_bridges": AVAILABLE_BRIDGES, "bridges": {}}
+
+            # Update with new data
+            with last_known_state_lock:
+                for bridge_id, bridge_data in last_known_state.items():
+                    data["bridges"][bridge_id] = bridge_data
+
+            data["last_updated"] = current_time.isoformat()
+
+            # Atomic write
+            atomic_write_json("data/bridges.json", data)
+
+        # Broadcast to WebSocket clients
+        broadcast_sync(data)
+
+
+def daily_statistics_update() -> None:
+    """
+    Recalculate statistics for all bridges from history files.
+
+    Runs daily at 3 AM to update predictions.
+    """
+    logger.info("Starting daily statistics update...")
+
+    # Get all bridge IDs from current state
+    with last_known_state_lock:
+        bridge_ids = list(last_known_state.keys())
+
+    if not bridge_ids:
+        # Load from bridges.json if state is empty
+        if os.path.exists("data/bridges.json"):
+            with open("data/bridges.json") as f:
+                data = json.load(f)
+            bridge_ids = list(data.get("bridges", {}).keys())
+
+    updated_count = 0
+    for bridge_id in bridge_ids:
+        history_path = f"data/history/{bridge_id}.json"
+
+        # Read history file
+        if os.path.exists(history_path):
+            try:
+                with open(history_path) as f:
+                    history = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                history = []
+        else:
+            history = []
+
+        # Convert to format expected by stats_calculator
+        history_data = []
+        for entry in history:
+            history_data.append({
+                'id': entry.get('id', ''),
+                'status': entry.get('status', ''),
+                'duration': entry.get('duration'),
+                'start_time': parse_datetime(entry.get('start_time')) or datetime.min
+            })
+
+        # Calculate statistics
+        stats, entries_to_delete = calculate_bridge_statistics(history_data)
+
+        # Remove old entries from history file
+        if entries_to_delete:
+            history = [e for e in history if e.get('id') not in entries_to_delete]
+            atomic_write_json(history_path, history)
+
+        # Update statistics in memory and file
+        with last_known_state_lock:
+            if bridge_id in last_known_state:
+                last_known_state[bridge_id]['static']['statistics'] = stats
+                updated_count += 1
+
+    # Write updated state to bridges.json
+    with bridges_file_lock:
+        if os.path.exists("data/bridges.json"):
+            with open("data/bridges.json") as f:
+                data = json.load(f)
+        else:
+            data = {"last_updated": None, "available_bridges": [], "bridges": {}}
+
+        with last_known_state_lock:
+            for bridge_id, bridge_data in last_known_state.items():
+                data["bridges"][bridge_id] = bridge_data
+
+        data["last_updated"] = datetime.now(TIMEZONE).isoformat()
+        atomic_write_json("data/bridges.json", data)
+
+    logger.info(f"Daily statistics update complete: {updated_count} bridges updated")
+
+
 def process_single_region(bridge_key_info_pair: Tuple[str, Dict[str, str]]) -> Tuple[bool, int]:
     """
     Process a single region with smart backoff that never gives up.
-
-    Args:
-        bridge_key_info_pair: Tuple of (bridge_key, info_dict) where info_dict
-                             contains 'region' and 'shortform' keys
-
-    Returns:
-        Tuple of (success: bool, bridge_count: int)
     """
     bridge_key, info = bridge_key_info_pair
     region = info['region']
 
-    # Check if we're still in backoff period - THREAD SAFE
+    # Check if we're still in backoff period
     with region_failures_lock:
         if bridge_key in region_failures:
             failure_count, next_retry = region_failures[bridge_key]
@@ -657,20 +771,19 @@ def process_single_region(bridge_key_info_pair: Tuple[str, Dict[str, str]]) -> T
     try:
         bridges = scrape_bridge_data(bridge_key)
         if bridges:
-            update_firestore(bridges, info['region'], info['shortform'])
+            update_json_and_broadcast(bridges, info['region'], info['shortform'])
 
-            # Success - reset failure count - THREAD SAFE
+            # Success - reset failure count
             with region_failures_lock:
                 if bridge_key in region_failures:
                     failure_count = region_failures[bridge_key][0]
                     logger.info(f"✓ {region}: {len(bridges)} (recovered after {failure_count} failures)")
-                    del region_failures[bridge_key]  # Clear failures
+                    del region_failures[bridge_key]
                 else:
                     logger.info(f"✓ {region}: {len(bridges)}")
 
             return (True, len(bridges))
         else:
-            # Empty response counts as failure
             handle_region_failure(bridge_key, region, "No data")
             return (False, 0)
 
@@ -681,20 +794,12 @@ def process_single_region(bridge_key_info_pair: Tuple[str, Dict[str, str]]) -> T
 
 def handle_region_failure(bridge_key: str, region: str, error_msg: str) -> None:
     """
-    Update failure tracking with next retry time - THREAD SAFE.
-
-    Args:
-        bridge_key: The bridge region key (e.g., 'BridgeSCT')
-        region: Human-readable region name
-        error_msg: Error message to log
+    Update failure tracking with next retry time.
     """
     with region_failures_lock:
         failure_count = region_failures.get(bridge_key, (0, None))[0] + 1
-
-        # Calculate next retry time (exponential backoff, max 5 minutes)
         wait_seconds = min(2 ** failure_count, 300)
         next_retry = datetime.now() + timedelta(seconds=wait_seconds)
-
         region_failures[bridge_key] = (failure_count, next_retry)
 
     if failure_count == 1:
@@ -704,22 +809,21 @@ def handle_region_failure(bridge_key: str, region: str, error_msg: str) -> None:
 
 
 def scrape_and_update() -> None:
-    """Main scraping function with concurrent execution and error handling."""
+    """
+    Main scraping function with concurrent execution and error handling.
+    """
     start_time = datetime.now(TIMEZONE)
     logger.info("Scraping...")
 
     success_count = 0
     fail_count = 0
 
-    # Use ThreadPoolExecutor for concurrent scraping (I/O bound operations)
     with concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="BridgeScraper") as executor:
-        # Submit all scraping tasks concurrently
         future_to_region = {
             executor.submit(process_single_region, (bridge_key, info)): info['region']
             for bridge_key, info in BRIDGE_KEYS.items()
         }
 
-        # Collect results with timeout
         for future in concurrent.futures.as_completed(future_to_region, timeout=25):
             region = future_to_region[future]
             try:
@@ -734,7 +838,17 @@ def scrape_and_update() -> None:
 
     end_time = datetime.now(TIMEZONE)
     duration = (end_time - start_time).total_seconds()
+
+    # Update last scrape time
+    shared.last_scrape_time = end_time
+
     logger.info(f"Done in {duration:.1f}s - All: {success_count} ✓, {fail_count} ✗")
 
+
 if __name__ == '__main__':
+    # For standalone testing
+    os.makedirs("data/history", exist_ok=True)
+    if not os.path.exists("data/bridges.json"):
+        with open("data/bridges.json", "w") as f:
+            json.dump({"last_updated": None, "available_bridges": [], "bridges": {}}, f)
     scrape_and_update()

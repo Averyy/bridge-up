@@ -1,8 +1,5 @@
 # docker-compose.yml
 # Bridge Up Backend - Production Deployment
-#
-# Assumes Caddy is already running on host and reverse proxying to port 8000
-# See Caddyfile for the required Caddy configuration
 
 services:
   app:
@@ -11,16 +8,20 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Persist bridge data and history across container restarts
       - ./data:/app/data
     environment:
       - OLD_JSON_ENDPOINT=${OLD_JSON_ENDPOINT}
       - NEW_JSON_ENDPOINT=${NEW_JSON_ENDPOINT}
+    networks:
+      - web
     restart: always
-    # Health check for Docker (using Python since slim image has no curl)
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+
+networks:
+  web:
+    external: true

@@ -576,9 +576,9 @@ def update_json_and_broadcast(bridges: List[Dict[str, Any]], region: str, shortf
                 },
                 'statistics': existing_stats if existing_stats else {
                     'average_closure_duration': 0,
-                    'closure_ci': {'lower': 8, 'upper': 16},
+                    'closure_ci': {'lower': 15, 'upper': 20},
                     'average_raising_soon': 0,
-                    'raising_soon_ci': {'lower': 3, 'upper': 8},
+                    'raising_soon_ci': {'lower': 15, 'upper': 20},
                     'closure_durations': {
                         'under_9m': 0, '10_15m': 0, '16_30m': 0, '31_60m': 0, 'over_60m': 0
                     },

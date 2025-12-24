@@ -31,8 +31,8 @@ class TestPredictions(unittest.TestCase):
         """Set up test fixtures."""
         self.current_time = datetime(2025, 12, 24, 12, 0, 0, tzinfo=TIMEZONE)
         self.default_stats = {
-            'closure_ci': {'lower': 8, 'upper': 16},
-            'raising_soon_ci': {'lower': 3, 'upper': 8}
+            'closure_ci': {'lower': 15, 'upper': 20},
+            'raising_soon_ci': {'lower': 15, 'upper': 20}
         }
 
     # === CLOSED STATUS TESTS ===
@@ -53,9 +53,9 @@ class TestPredictions(unittest.TestCase):
         lower = parse_datetime(result['lower'])
         upper = parse_datetime(result['upper'])
 
-        # Lower should be 8 min from now, upper 16 min
-        self.assertAlmostEqual((lower - self.current_time).total_seconds(), 8 * 60, delta=60)
-        self.assertAlmostEqual((upper - self.current_time).total_seconds(), 16 * 60, delta=60)
+        # Lower should be 15 min from now, upper 20 min
+        self.assertAlmostEqual((lower - self.current_time).total_seconds(), 15 * 60, delta=60)
+        self.assertAlmostEqual((upper - self.current_time).total_seconds(), 20 * 60, delta=60)
 
     def test_closed_5min_elapsed_pure_stats(self):
         """Closed bridge with 5 min elapsed shows reduced prediction."""
@@ -72,9 +72,9 @@ class TestPredictions(unittest.TestCase):
         lower = parse_datetime(result['lower'])
         upper = parse_datetime(result['upper'])
 
-        # Lower: 8-5=3 min, Upper: 16-5=11 min from now
-        self.assertAlmostEqual((lower - self.current_time).total_seconds(), 3 * 60, delta=60)
-        self.assertAlmostEqual((upper - self.current_time).total_seconds(), 11 * 60, delta=60)
+        # Lower: 15-5=10 min, Upper: 20-5=15 min from now
+        self.assertAlmostEqual((lower - self.current_time).total_seconds(), 10 * 60, delta=60)
+        self.assertAlmostEqual((upper - self.current_time).total_seconds(), 15 * 60, delta=60)
 
     def test_closed_longer_than_usual(self):
         """Closed bridge past upper CI returns None (longer than usual)."""
@@ -109,10 +109,10 @@ class TestPredictions(unittest.TestCase):
         )
 
         self.assertIsNotNone(result)
-        # Blended: (15 + 8) / 2 - 5 = 6.5 min lower
-        # Blended: (15 + 16) / 2 - 5 = 10.5 min upper
+        # Blended: (15 + 15) / 2 - 5 = 10 min lower
+        # Blended: (15 + 20) / 2 - 5 = 12.5 min upper
         lower = parse_datetime(result['lower'])
-        self.assertAlmostEqual((lower - self.current_time).total_seconds(), 6.5 * 60, delta=60)
+        self.assertAlmostEqual((lower - self.current_time).total_seconds(), 10 * 60, delta=60)
 
     def test_closed_boat_not_started_uses_pure_stats(self):
         """Future boat closure doesn't affect prediction (pure stats)."""
@@ -134,7 +134,7 @@ class TestPredictions(unittest.TestCase):
         # Should use pure stats, not blended
         self.assertIsNotNone(result)
         lower = parse_datetime(result['lower'])
-        self.assertAlmostEqual((lower - self.current_time).total_seconds(), 8 * 60, delta=60)
+        self.assertAlmostEqual((lower - self.current_time).total_seconds(), 15 * 60, delta=60)
 
     # === CONSTRUCTION STATUS TESTS ===
 
@@ -197,9 +197,9 @@ class TestPredictions(unittest.TestCase):
         lower = parse_datetime(result['lower'])
         upper = parse_datetime(result['upper'])
 
-        # Should use raising_soon_ci (3-8 min)
-        self.assertAlmostEqual((lower - self.current_time).total_seconds(), 3 * 60, delta=60)
-        self.assertAlmostEqual((upper - self.current_time).total_seconds(), 8 * 60, delta=60)
+        # Should use raising_soon_ci (15-20 min)
+        self.assertAlmostEqual((lower - self.current_time).total_seconds(), 15 * 60, delta=60)
+        self.assertAlmostEqual((upper - self.current_time).total_seconds(), 20 * 60, delta=60)
 
     def test_closing_soon_with_upcoming_closure_within_hour(self):
         """Closing soon with known closure time < 1 hour returns None (iOS uses closure.time)."""

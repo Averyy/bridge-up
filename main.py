@@ -10,6 +10,8 @@ This is the main entry point for the migrated backend:
 """
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from typing import Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -24,6 +26,208 @@ from shared import (
 )
 from config import BRIDGE_KEYS, BRIDGE_DETAILS
 from loguru import logger
+
+
+# === Response Models for API Documentation ===
+
+class EndpointsInfo(BaseModel):
+    docs: str = "/docs"
+    health: str = "/health"
+    bridges: str = "/bridges"
+    websocket: str = "wss://api.bridgeup.app/ws"
+
+
+class RootResponse(BaseModel):
+    """API root response with endpoint discovery."""
+    name: str = "Bridge Up API"
+    description: str = "Real-time bridge status for St. Lawrence Seaway"
+    endpoints: EndpointsInfo
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "name": "Bridge Up API",
+                "description": "Real-time bridge status for St. Lawrence Seaway",
+                "endpoints": {
+                    "docs": "/docs",
+                    "health": "/health",
+                    "bridges": "/bridges",
+                    "websocket": "wss://api.bridgeup.app/ws"
+                }
+            }
+        }
+    }
+
+
+class HealthResponse(BaseModel):
+    """Health check response."""
+    status: str = Field(description="API status", examples=["ok"])
+    last_updated: Optional[str] = Field(description="Last time bridge data changed")
+    last_scrape: Optional[str] = Field(description="Last scrape attempt timestamp")
+    last_scrape_had_changes: bool = Field(description="Whether last scrape found changes")
+    bridges_count: int = Field(description="Number of bridges in data")
+    websocket_clients: int = Field(description="Connected WebSocket clients")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "status": "ok",
+                "last_updated": "2025-12-24T12:25:00-05:00",
+                "last_scrape": "2025-12-24T12:30:05-05:00",
+                "last_scrape_had_changes": False,
+                "bridges_count": 15,
+                "websocket_clients": 3
+            }
+        }
+    }
+
+
+class AvailableBridge(BaseModel):
+    """Bridge identifier for the available bridges list."""
+    id: str = Field(description="Unique bridge ID", examples=["SCT_CarltonSt"])
+    name: str = Field(description="Bridge name", examples=["Carlton St."])
+    region_short: str = Field(description="Region code", examples=["SCT"])
+    region: str = Field(description="Full region name", examples=["St Catharines"])
+
+
+class Coordinates(BaseModel):
+    """Bridge GPS coordinates."""
+    lat: float = Field(description="Latitude", examples=[43.19])
+    lng: float = Field(description="Longitude", examples=[-79.20])
+
+
+class ConfidenceInterval(BaseModel):
+    """Confidence interval for predictions."""
+    lower: float = Field(description="Lower bound (minutes)")
+    upper: float = Field(description="Upper bound (minutes)")
+
+
+class ClosureDurations(BaseModel):
+    """Distribution of closure durations."""
+    under_9m: int = Field(description="Closures under 9 minutes")
+    m_10_15m: int = Field(alias="10_15m", description="Closures 10-15 minutes")
+    m_16_30m: int = Field(alias="16_30m", description="Closures 16-30 minutes")
+    m_31_60m: int = Field(alias="31_60m", description="Closures 31-60 minutes")
+    over_60m: int = Field(description="Closures over 60 minutes")
+
+
+class Statistics(BaseModel):
+    """Historical statistics for a bridge."""
+    average_closure_duration: Optional[float] = Field(description="Average closure in minutes")
+    closure_ci: Optional[ConfidenceInterval] = Field(description="95% CI for closure duration")
+    average_raising_soon: Optional[float] = Field(description="Average 'closing soon' duration")
+    raising_soon_ci: Optional[ConfidenceInterval] = Field(description="95% CI for closing soon")
+    closure_durations: Optional[ClosureDurations] = Field(description="Duration distribution")
+    total_entries: Optional[int] = Field(description="Total historical data points")
+
+
+class StaticBridgeData(BaseModel):
+    """Static bridge information that rarely changes."""
+    name: str = Field(description="Bridge name")
+    region: str = Field(description="Region name")
+    region_short: str = Field(description="Region code")
+    coordinates: Coordinates
+    statistics: Optional[Statistics] = None
+
+
+class PredictedTime(BaseModel):
+    """Predicted time range for status change."""
+    lower: str = Field(description="Earliest expected time (ISO 8601)")
+    upper: str = Field(description="Latest expected time (ISO 8601)")
+
+
+class UpcomingClosure(BaseModel):
+    """Scheduled or imminent closure."""
+    type: str = Field(description="Closure type", examples=["Commercial Vessel", "Pleasure Craft", "Construction"])
+    time: str = Field(description="Expected closure time (ISO 8601)")
+    longer: Optional[bool] = Field(default=False, description="Longer than normal closure")
+    end_time: Optional[str] = Field(default=None, description="End time for construction")
+    expected_duration_minutes: Optional[int] = Field(default=None, description="Expected duration")
+
+
+class LiveBridgeData(BaseModel):
+    """Real-time bridge status."""
+    status: str = Field(description="Current status", examples=["Open", "Closed", "Closing soon", "Opening", "Construction"])
+    last_updated: str = Field(description="When status was last updated (ISO 8601)")
+    predicted: Optional[PredictedTime] = Field(default=None, description="Predicted next status change")
+    upcoming_closures: list[UpcomingClosure] = Field(default=[], description="Scheduled closures")
+
+
+class BridgeData(BaseModel):
+    """Complete bridge data with static and live info."""
+    static: StaticBridgeData
+    live: LiveBridgeData
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "static": {
+                    "name": "Carlton St.",
+                    "region": "St Catharines",
+                    "region_short": "SCT",
+                    "coordinates": {"lat": 43.19, "lng": -79.20},
+                    "statistics": {
+                        "average_closure_duration": 12.5,
+                        "closure_ci": {"lower": 8, "upper": 16},
+                        "average_raising_soon": 3.2,
+                        "raising_soon_ci": {"lower": 2, "upper": 5},
+                        "total_entries": 287
+                    }
+                },
+                "live": {
+                    "status": "Closed",
+                    "last_updated": "2025-12-24T12:30:00-05:00",
+                    "predicted": {
+                        "lower": "2025-12-24T12:38:00-05:00",
+                        "upper": "2025-12-24T12:46:00-05:00"
+                    },
+                    "upcoming_closures": [{
+                        "type": "Commercial Vessel",
+                        "time": "2025-12-24T12:25:00-05:00",
+                        "longer": False,
+                        "expected_duration_minutes": 15
+                    }]
+                }
+            }
+        }
+    }
+
+
+class BridgesResponse(BaseModel):
+    """Response for /bridges endpoint."""
+    last_updated: Optional[str] = Field(description="Last data update timestamp")
+    available_bridges: list[AvailableBridge] = Field(description="List of all monitored bridges")
+    bridges: dict[str, BridgeData] = Field(description="Bridge data keyed by ID")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "last_updated": "2025-12-24T12:30:00-05:00",
+                "available_bridges": [
+                    {"id": "SCT_CarltonSt", "name": "Carlton St.", "region_short": "SCT", "region": "St Catharines"},
+                    {"id": "SCT_Highway", "name": "Highway 20", "region_short": "SCT", "region": "St Catharines"}
+                ],
+                "bridges": {
+                    "SCT_CarltonSt": {
+                        "static": {
+                            "name": "Carlton St.",
+                            "region": "St Catharines",
+                            "region_short": "SCT",
+                            "coordinates": {"lat": 43.19, "lng": -79.20},
+                            "statistics": {"closure_ci": {"lower": 8, "upper": 16}}
+                        },
+                        "live": {
+                            "status": "Open",
+                            "last_updated": "2025-12-24T12:30:00-05:00",
+                            "predicted": None,
+                            "upcoming_closures": []
+                        }
+                    }
+                }
+            }
+        }
+    }
+
 
 # Scheduler instance
 scheduler = AsyncIOScheduler(timezone=TIMEZONE)
@@ -183,7 +387,8 @@ app = FastAPI(
     title="Bridge Up API",
     description="Real-time bridge status for St. Lawrence Seaway",
     version="2.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    redoc_url=None  # Disable ReDoc
 )
 
 # CORS middleware for web clients
@@ -260,7 +465,7 @@ def broadcast_sync(data: dict):
         asyncio.run_coroutine_threadsafe(broadcast(data), shared.main_loop)
 
 
-@app.get("/bridges")
+@app.get("/bridges", response_model=BridgesResponse)
 def get_bridges():
     """
     Get current state of all bridges.
@@ -274,7 +479,7 @@ def get_bridges():
     return {"last_updated": None, "available_bridges": AVAILABLE_BRIDGES, "bridges": {}}
 
 
-@app.get("/bridges/{bridge_id}")
+@app.get("/bridges/{bridge_id}", response_model=BridgeData)
 def get_bridge(bridge_id: str):
     """
     Get a single bridge by ID.
@@ -290,7 +495,24 @@ def get_bridge(bridge_id: str):
     raise HTTPException(status_code=404, detail="Bridge not found")
 
 
-@app.get("/health")
+@app.get("/", response_model=RootResponse)
+def root():
+    """
+    API root - returns available endpoints.
+    """
+    return {
+        "name": "Bridge Up API",
+        "description": "Real-time bridge status for St. Lawrence Seaway",
+        "endpoints": {
+            "docs": "/docs",
+            "health": "/health",
+            "bridges": "/bridges",
+            "websocket": "wss://api.bridgeup.app/ws"
+        }
+    }
+
+
+@app.get("/health", response_model=HealthResponse)
 def health():
     """
     Health check endpoint for monitoring.
@@ -315,6 +537,7 @@ def health():
         "status": "ok",
         "last_updated": last_updated,
         "last_scrape": shared.last_scrape_time.isoformat() if shared.last_scrape_time else None,
+        "last_scrape_had_changes": shared.last_scrape_had_changes,
         "bridges_count": bridges_count,
         "websocket_clients": len(connected_clients)
     }

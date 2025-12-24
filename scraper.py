@@ -839,8 +839,9 @@ def scrape_and_update() -> None:
     end_time = datetime.now(TIMEZONE)
     duration = (end_time - start_time).total_seconds()
 
-    # Update last scrape time
+    # Update last scrape time and change flag
     shared.last_scrape_time = end_time
+    shared.last_scrape_had_changes = updates_made
 
     logger.info(f"Done in {duration:.1f}s - All: {success_count} ✓, {fail_count} ✗")
 

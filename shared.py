@@ -19,6 +19,7 @@ TIMEZONE = pytz.timezone('America/Toronto')
 
 # Last scrape timestamp (for health monitoring)
 last_scrape_time: Optional[datetime] = None
+last_scrape_had_changes: bool = False
 
 # In-memory cache of current bridge state
 # Structure: {bridge_id: {static: {...}, live: {...}}}

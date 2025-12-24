@@ -389,9 +389,10 @@ app = FastAPI(
     title="Bridge Up API",
     description="Real-time bridge status for St. Lawrence Seaway",
     version="2.0.0",
+    contact={"url": "https://bridgeup.app"},
     lifespan=lifespan,
-    docs_url=None,   # Disable default docs (we'll serve custom)
-    redoc_url=None   # Disable ReDoc
+    docs_url=None,
+    redoc_url=None
 )
 
 # Mount static files for custom CSS
@@ -520,12 +521,23 @@ def root():
 
 @app.get("/docs", include_in_schema=False)
 async def custom_swagger_ui():
-    """Serve custom-styled Swagger UI."""
-    return get_swagger_ui_html(
+    """Serve custom-styled Swagger UI with dark theme."""
+    from fastapi.responses import HTMLResponse
+
+    # Get default Swagger UI HTML
+    html = get_swagger_ui_html(
         openapi_url="/openapi.json",
-        title="Bridge Up API",
-        swagger_css_url="/static/swagger-custom.css"
+        title="Bridge Up API"
     )
+
+    # Inject custom CSS after the default Swagger CSS
+    custom_css_link = '<link rel="stylesheet" href="/static/swagger-custom.css">'
+    modified_html = html.body.decode().replace(
+        '</head>',
+        f'{custom_css_link}</head>'
+    )
+
+    return HTMLResponse(content=modified_html)
 
 
 @app.get("/health", response_model=HealthResponse)

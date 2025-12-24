@@ -4,6 +4,14 @@
 **NEVER add "Generated with Claude Code" or "Co-Authored-By: Claude" to commit messages.**
 The user pays for this service. Do not take credit. Commit messages should contain ONLY the user's requested content.
 
+## CRITICAL REMINDER - API DOCUMENTATION
+**When modifying any API endpoint, response model, or adding new endpoints:**
+1. Update `/docs` Swagger UI if needed (custom CSS in `static/swagger-custom.css`)
+2. Update response models in `main.py` with examples
+3. Update CLAUDE.md API Endpoints section
+4. Update README.md Endpoints table
+5. Verify Swagger UI looks correct with puppeteer before committing
+
 ## Session: June 1, 2025 - Major Backend Fixes & Performance Improvements
 
 ### Critical Issue Solved: APScheduler Stalling
@@ -236,3 +244,43 @@ docker exec bridge-up python -c "from scraper import daily_statistics_update; da
 - .claude/agent/memory.md - This session
 - .claude/shared/project-context.md - New architecture
 - MIGRATION_PLAN_STATUS.md - Backend complete
+
+## Session: December 24, 2024 - Custom Swagger UI & Statistics Null Handling
+
+### Custom Swagger UI Dark Theme
+**Goal**: Match API documentation styling to bridgeup.app branding
+
+**Implementation**:
+- Created `static/swagger-custom.css` with Bridge Up color palette
+- Primary blue: `#0A84FF` (matches iOS app and marketing site)
+- Dark backgrounds: `#0B1929`, `#060F18`, `#132F4C`
+- Custom endpoint loads default Swagger CSS first, then injects custom CSS
+
+**Key Technical Challenge**:
+- `swagger_css_url` parameter REPLACES default CSS (breaks layout)
+- Solution: Use `get_swagger_ui_html()` then inject custom CSS link before `</head>`
+
+**CSS Classes Added for Swagger UI 5.x**:
+- `.json-schema-2020-12-*` classes for schema section
+- `.opblock-section-header` for Parameters/Responses headers
+- Model box, prop-type, expand buttons styling
+
+### Statistics Null Handling
+**Problem**: Statistics showed misleading CI values (8-16m, 3-8m) when insufficient data existed
+
+**Solution**:
+- Return `null` for statistics when <20 entries (MIN_ENTRIES_FOR_CI)
+- Predictions still work internally with sensible defaults: `statistics.get('closure_ci') or {'lower': 15, 'upper': 20}`
+- iOS app should handle null gracefully (don't show CI to users)
+
+### Files Modified
+- `main.py` - Custom Swagger endpoint, contact URL, response models
+- `static/swagger-custom.css` - New dark theme (~550 lines)
+- `stats_calculator.py` - Return null for insufficient data
+- `predictions.py` - Handle null CI with defaults
+- `tests/test_statistics.py` - Updated to expect None
+- `CLAUDE.md` - API docs section, null statistics
+- `README.md` - Updated endpoints, null statistics section
+
+### Key Lesson: Always Test Swagger UI Visually
+CSS changes can break layout in unexpected ways. Always verify with puppeteer screenshots before committing.

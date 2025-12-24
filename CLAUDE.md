@@ -52,10 +52,19 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
 ## API Endpoints
 
 - `WS /ws` - WebSocket for real-time updates
+- `GET /` - API root with endpoint discovery
 - `GET /bridges` - HTTP fallback (same data as WebSocket)
 - `GET /bridges/{id}` - Single bridge by ID
 - `GET /health` - Health check with status info
-- `GET /docs` - Auto-generated OpenAPI documentation
+- `GET /docs` - Custom Swagger UI with dark theme (matches bridgeup.app branding)
+
+### API Documentation (`/docs`)
+
+Custom-styled Swagger UI with Bridge Up dark theme:
+- CSS in `static/swagger-custom.css`
+- Injected after default Swagger CSS via `main.py` custom endpoint
+- Contact URL links to https://bridgeup.app
+- Response models with examples for all endpoints
 
 ## JSON Schema (DO NOT MODIFY WITHOUT iOS COORDINATION)
 

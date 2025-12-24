@@ -38,10 +38,11 @@ Backend API powering the [Bridge Up iOS app](https://bridgeup.app) — never wai
 | Endpoint | Description |
 |----------|-------------|
 | `wss://api.bridgeup.app/ws` | WebSocket — real-time updates |
+| `GET /` | API root with endpoint discovery |
 | `GET /bridges` | All bridges (same data as WebSocket) |
 | `GET /bridges/{id}` | Single bridge by ID |
 | `GET /health` | Health check |
-| `GET /docs` | OpenAPI documentation |
+| `GET /docs` | OpenAPI documentation (custom dark theme) |
 
 ### REST Example
 

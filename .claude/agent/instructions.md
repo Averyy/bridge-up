@@ -84,6 +84,7 @@ python scraper.py              # Test scraper standalone
 - Don't exceed current scraping intervals (20-30s)
 - Don't replace complex components with simplified versions
 - Don't create mock data unless explicitly requested
+- **Update API docs when changing endpoints** - Keep `/docs`, CLAUDE.md, README.md in sync
 
 ### Soft Guidelines (Follow Unless Good Reason)
 - Prefer enhancing existing code over creating new files

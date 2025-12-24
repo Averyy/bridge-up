@@ -27,10 +27,17 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
 ## API Endpoints
 
 - `WS /ws` - WebSocket for real-time updates (push on change)
+- `GET /` - API root with endpoint discovery
 - `GET /bridges` - HTTP fallback (same data as WebSocket)
 - `GET /bridges/{id}` - Single bridge by ID
 - `GET /health` - Health check with status info
-- `GET /docs` - Auto-generated OpenAPI documentation
+- `GET /docs` - Custom Swagger UI with Bridge Up dark theme
+
+### API Documentation
+- Custom dark theme in `static/swagger-custom.css`
+- Matches bridgeup.app branding (primary blue `#0A84FF`)
+- Response models with examples for all endpoints
+- Contact URL links to https://bridgeup.app
 
 ## Monitored Bridge Network
 
@@ -174,6 +181,14 @@ docker exec bridge-up python -c "from scraper import daily_statistics_update; da
 4. **Maintain concurrent execution** - Sequential would be 50x slower
 5. **Keep dual parser system** - Different regions use different JSON formats
 6. **Use atomic writes** - Prevents JSON corruption on crash
+7. **Update API docs when changing endpoints** - Keep `/docs`, CLAUDE.md, README.md in sync
+8. **Test Swagger UI visually** - CSS changes can break layout unexpectedly
+
+## Statistics Null Handling
+Statistics fields return `null` when insufficient data (<20 entries):
+- `average_closure_duration`, `closure_ci`, `average_raising_soon`, `raising_soon_ci`
+- Predictions still work internally with defaults: `{'lower': 15, 'upper': 20}`
+- iOS should not display CI to users when null
 
 ## Business Context
 - **Users**: Travelers who need real-time bridge status

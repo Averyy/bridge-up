@@ -202,6 +202,62 @@ html, body {
   background: var(--bridgeup-bg-dark) !important;
 }
 
+/* Parameters and Responses section headers - need high specificity */
+.swagger-ui .opblock .opblock-section-header {
+  background: var(--bridgeup-bg-card) !important;
+  background-color: var(--bridgeup-bg-card) !important;
+  border-bottom: 1px solid var(--bridgeup-border) !important;
+}
+
+.swagger-ui .opblock-section-header,
+.swagger-ui .opblock-body .opblock-section-header,
+.swagger-ui .opblock-section .opblock-section-header {
+  background: var(--bridgeup-bg-card) !important;
+  background-color: var(--bridgeup-bg-card) !important;
+}
+
+.swagger-ui .opblock-section-header h4,
+.swagger-ui .opblock-section-header .opblock-title {
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .opblock-section-header label {
+  color: var(--bridgeup-text-muted) !important;
+}
+
+/* Tab headers */
+.swagger-ui .tab-header,
+.swagger-ui .opblock-section-header .tab-header {
+  background: transparent !important;
+}
+
+.swagger-ui .tab-header .tab-item {
+  background: transparent !important;
+  color: var(--bridgeup-text-muted) !important;
+}
+
+.swagger-ui .tab-header .tab-item.active {
+  color: var(--bridgeup-text) !important;
+}
+
+/* Responses header specifically */
+.swagger-ui .responses-wrapper,
+.swagger-ui .responses-inner {
+  background: transparent !important;
+}
+
+.swagger-ui .responses-wrapper h4,
+.swagger-ui .responses h4 {
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .opblock .responses-wrapper > h4,
+.swagger-ui .opblock .responses > h4 {
+  background: var(--bridgeup-bg-card) !important;
+  padding: 10px !important;
+  border-radius: 4px !important;
+}
+
 .swagger-ui .opblock-body pre {
   background: var(--bridgeup-bg-darker) !important;
   border-radius: 8px !important;
@@ -307,6 +363,127 @@ html, body {
 }
 
 .swagger-ui .model .property.primitive {
+  color: var(--bridgeup-primary) !important;
+}
+
+/* Model box and property styling */
+.swagger-ui .model-box {
+  background: var(--bridgeup-bg-card) !important;
+  border-radius: 8px !important;
+}
+
+.swagger-ui .prop-type {
+  color: var(--bridgeup-primary) !important;
+}
+
+.swagger-ui .prop-format {
+  color: var(--bridgeup-text-muted) !important;
+}
+
+/* Required field asterisk */
+.swagger-ui .model .property span.star {
+  color: var(--bridgeup-status-error) !important;
+}
+
+.swagger-ui span.prop-type {
+  color: var(--bridgeup-primary) !important;
+}
+
+/* Model toggle/expand button */
+.swagger-ui .model-toggle {
+  background: var(--bridgeup-bg-card) !important;
+  border-radius: 4px !important;
+}
+
+.swagger-ui .model-toggle::after {
+  background: var(--bridgeup-text-muted) !important;
+}
+
+/* Expand all button in schemas */
+.swagger-ui .model-box-control,
+.swagger-ui .models-control {
+  background: var(--bridgeup-bg-card) !important;
+  border-radius: 6px !important;
+  padding: 4px 8px !important;
+}
+
+.swagger-ui .model-box-control:hover,
+.swagger-ui .models-control:hover {
+  background: var(--bridgeup-bg-dark) !important;
+}
+
+/* Schema expand/collapse buttons */
+.swagger-ui button.model-box-control {
+  background: transparent !important;
+  border: 1px solid var(--bridgeup-border) !important;
+  color: var(--bridgeup-text-muted) !important;
+}
+
+.swagger-ui button.model-box-control:hover {
+  background: var(--bridgeup-bg-card) !important;
+  color: var(--bridgeup-text) !important;
+}
+
+/* Model hint tooltip */
+.swagger-ui .model-hint {
+  background: var(--bridgeup-bg-darker) !important;
+  color: var(--bridgeup-text) !important;
+  border-radius: 4px !important;
+}
+
+/* Inner model content */
+.swagger-ui .inner-object {
+  background: transparent !important;
+}
+
+.swagger-ui section.models .model-box {
+  background: transparent !important;
+}
+
+/* JSON Schema 2020-12 (Swagger UI 5.x) */
+.swagger-ui .json-schema-2020-12-accordion,
+.swagger-ui .json-schema-2020-12-expand-deep-button,
+.swagger-ui .json-schema-2020-12__attribute {
+  background: transparent !important;
+  border: 1px solid var(--bridgeup-border) !important;
+  border-radius: 6px !important;
+  color: var(--bridgeup-text-muted) !important;
+}
+
+.swagger-ui .json-schema-2020-12-expand-deep-button:hover {
+  background: var(--bridgeup-bg-card) !important;
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .json-schema-2020-12-accordion__children {
+  background: transparent !important;
+}
+
+.swagger-ui .json-schema-2020-12-keyword {
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .json-schema-2020-12-keyword__name {
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .json-schema-2020-12-keyword__value {
+  color: var(--bridgeup-primary) !important;
+}
+
+.swagger-ui .json-schema-2020-12__title {
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .json-schema-2020-12__description {
+  color: var(--bridgeup-text-muted) !important;
+}
+
+.swagger-ui .json-schema-2020-12-property {
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .json-schema-2020-12-type {
   color: var(--bridgeup-primary) !important;
 }
 

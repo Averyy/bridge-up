@@ -92,21 +92,30 @@ def calculate_bridge_statistics(history_data: List[Dict[str, Any]]) -> Tuple[Dic
             raising_soon_durations.append(duration / 60)
 
     # Calculate statistics
+    # Minimum entries needed for meaningful CI (statistically: need ~20+ for reasonable CI)
+    MIN_ENTRIES_FOR_CI = 20
     stats = {}
 
     if closure_durations:
         stats['average_closure_duration'] = round(sum(closure_durations) / len(closure_durations))
-        stats['closure_ci'] = calculate_confidence_interval(closure_durations)
+        # Only show CI if we have enough data for it to be meaningful
+        if len(closure_durations) >= MIN_ENTRIES_FOR_CI:
+            stats['closure_ci'] = calculate_confidence_interval(closure_durations)
+        else:
+            stats['closure_ci'] = None  # Not enough data for reliable CI
     else:
-        stats['average_closure_duration'] = 0
-        stats['closure_ci'] = {'lower': 0, 'upper': 0}
+        stats['average_closure_duration'] = None
+        stats['closure_ci'] = None
 
     if raising_soon_durations:
         stats['average_raising_soon'] = round(sum(raising_soon_durations) / len(raising_soon_durations))
-        stats['raising_soon_ci'] = calculate_confidence_interval(raising_soon_durations)
+        if len(raising_soon_durations) >= MIN_ENTRIES_FOR_CI:
+            stats['raising_soon_ci'] = calculate_confidence_interval(raising_soon_durations)
+        else:
+            stats['raising_soon_ci'] = None
     else:
-        stats['average_raising_soon'] = 0
-        stats['raising_soon_ci'] = {'lower': 0, 'upper': 0}
+        stats['average_raising_soon'] = None
+        stats['raising_soon_ci'] = None
 
     stats['closure_durations'] = closure_buckets
     stats['total_entries'] = total_entries

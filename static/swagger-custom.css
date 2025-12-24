@@ -1,0 +1,474 @@
+/*
+ * Bridge Up API - Custom Swagger UI Theme
+ */
+
+/* ===== ROOT VARIABLES ===== */
+:root {
+  --bridgeup-primary: #0A84FF;
+  --bridgeup-primary-dark: #0066CC;
+  --bridgeup-bg-dark: #0B1929;
+  --bridgeup-bg-darker: #060F18;
+  --bridgeup-bg-card: #132F4C;
+  --bridgeup-text: #FFFFFF;
+  --bridgeup-text-muted: #9CA3AF;
+  --bridgeup-border: rgba(255, 255, 255, 0.1);
+  --bridgeup-status-open: #30D158;
+  --bridgeup-status-warning: #FF9F0A;
+  --bridgeup-status-error: #FF453A;
+}
+
+/* ===== GLOBAL STYLES ===== */
+html, body {
+  background: var(--bridgeup-bg-darker) !important;
+}
+
+.swagger-ui {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  color: var(--bridgeup-text) !important;
+}
+
+/* ===== TOP BAR ===== */
+.swagger-ui .topbar {
+  background: var(--bridgeup-bg-dark) !important;
+  border-bottom: 1px solid var(--bridgeup-border) !important;
+  padding: 12px 0 !important;
+}
+
+.swagger-ui .topbar .download-url-wrapper {
+  display: flex;
+  align-items: center;
+}
+
+.swagger-ui .topbar .download-url-wrapper .download-url-button {
+  background: var(--bridgeup-primary) !important;
+  border: none !important;
+  border-radius: 8px !important;
+  color: white !important;
+  font-weight: 500 !important;
+}
+
+.swagger-ui .topbar .download-url-wrapper input[type=text] {
+  background: var(--bridgeup-bg-card) !important;
+  border: 1px solid var(--bridgeup-border) !important;
+  border-radius: 8px !important;
+  color: var(--bridgeup-text) !important;
+}
+
+/* Hide default Swagger logo - replace with custom if needed */
+.swagger-ui .topbar-wrapper img {
+  content: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 30"><text x="0" y="22" fill="%23FFFFFF" font-family="-apple-system, sans-serif" font-size="18" font-weight="600">Bridge Up API</text></svg>') !important;
+  height: 30px !important;
+}
+
+.swagger-ui .topbar a {
+  max-width: none !important;
+}
+
+/* ===== INFO SECTION ===== */
+.swagger-ui .info {
+  margin: 30px 0 !important;
+}
+
+.swagger-ui .info .title {
+  color: var(--bridgeup-text) !important;
+  font-weight: 700 !important;
+}
+
+.swagger-ui .info .title small {
+  background: var(--bridgeup-primary) !important;
+  border-radius: 6px !important;
+  padding: 4px 10px !important;
+}
+
+.swagger-ui .info .title small pre {
+  color: white !important;
+}
+
+.swagger-ui .info .description,
+.swagger-ui .info .description p,
+.swagger-ui .info li,
+.swagger-ui .info p,
+.swagger-ui .info table {
+  color: var(--bridgeup-text-muted) !important;
+}
+
+.swagger-ui .info a {
+  color: var(--bridgeup-primary) !important;
+}
+
+.swagger-ui .info .base-url {
+  color: var(--bridgeup-text-muted) !important;
+}
+
+/* ===== SCHEME CONTAINER ===== */
+.swagger-ui .scheme-container {
+  background: var(--bridgeup-bg-dark) !important;
+  border-radius: 12px !important;
+  border: 1px solid var(--bridgeup-border) !important;
+  padding: 20px !important;
+  box-shadow: none !important;
+}
+
+.swagger-ui .scheme-container .schemes > label {
+  color: var(--bridgeup-text) !important;
+}
+
+/* ===== OPERATION BLOCKS ===== */
+.swagger-ui .opblock-tag {
+  color: var(--bridgeup-text) !important;
+  border-bottom: 1px solid var(--bridgeup-border) !important;
+}
+
+.swagger-ui .opblock-tag:hover {
+  background: var(--bridgeup-bg-card) !important;
+}
+
+.swagger-ui .opblock-tag small {
+  color: var(--bridgeup-text-muted) !important;
+}
+
+/* GET - Blue */
+.swagger-ui .opblock.opblock-get {
+  background: rgba(10, 132, 255, 0.1) !important;
+  border-color: var(--bridgeup-primary) !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+
+.swagger-ui .opblock.opblock-get .opblock-summary-method {
+  background: var(--bridgeup-primary) !important;
+  border-radius: 6px !important;
+  font-weight: 600 !important;
+}
+
+.swagger-ui .opblock.opblock-get .opblock-summary {
+  border-color: transparent !important;
+}
+
+/* POST - Green */
+.swagger-ui .opblock.opblock-post {
+  background: rgba(48, 209, 88, 0.1) !important;
+  border-color: var(--bridgeup-status-open) !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+
+.swagger-ui .opblock.opblock-post .opblock-summary-method {
+  background: var(--bridgeup-status-open) !important;
+  border-radius: 6px !important;
+  font-weight: 600 !important;
+}
+
+/* PUT - Orange */
+.swagger-ui .opblock.opblock-put {
+  background: rgba(255, 159, 10, 0.1) !important;
+  border-color: var(--bridgeup-status-warning) !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+
+.swagger-ui .opblock.opblock-put .opblock-summary-method {
+  background: var(--bridgeup-status-warning) !important;
+  border-radius: 6px !important;
+  font-weight: 600 !important;
+}
+
+/* DELETE - Red */
+.swagger-ui .opblock.opblock-delete {
+  background: rgba(255, 69, 58, 0.1) !important;
+  border-color: var(--bridgeup-status-error) !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+
+.swagger-ui .opblock.opblock-delete .opblock-summary-method {
+  background: var(--bridgeup-status-error) !important;
+  border-radius: 6px !important;
+  font-weight: 600 !important;
+}
+
+/* Operation Summary */
+.swagger-ui .opblock .opblock-summary-path,
+.swagger-ui .opblock .opblock-summary-path__deprecated {
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .opblock .opblock-summary-description {
+  color: var(--bridgeup-text-muted) !important;
+}
+
+/* Operation Body */
+.swagger-ui .opblock-body {
+  background: var(--bridgeup-bg-dark) !important;
+}
+
+.swagger-ui .opblock-body pre {
+  background: var(--bridgeup-bg-darker) !important;
+  border-radius: 8px !important;
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .opblock-description-wrapper,
+.swagger-ui .opblock-description-wrapper p {
+  color: var(--bridgeup-text-muted) !important;
+}
+
+/* ===== PARAMETERS ===== */
+.swagger-ui .parameters-col_name {
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .parameters-col_description {
+  color: var(--bridgeup-text-muted) !important;
+}
+
+.swagger-ui .parameters-col_description input,
+.swagger-ui .parameters-col_description select,
+.swagger-ui .parameters-col_description textarea {
+  background: var(--bridgeup-bg-card) !important;
+  border: 1px solid var(--bridgeup-border) !important;
+  border-radius: 8px !important;
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .parameter__name {
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .parameter__name.required::after {
+  color: var(--bridgeup-status-error) !important;
+}
+
+.swagger-ui .parameter__type {
+  color: var(--bridgeup-primary) !important;
+}
+
+.swagger-ui table thead tr td,
+.swagger-ui table thead tr th {
+  color: var(--bridgeup-text-muted) !important;
+  border-bottom: 1px solid var(--bridgeup-border) !important;
+}
+
+.swagger-ui table tbody tr td {
+  color: var(--bridgeup-text) !important;
+}
+
+/* ===== RESPONSE SECTION ===== */
+.swagger-ui .responses-inner {
+  background: transparent !important;
+}
+
+.swagger-ui .responses-inner h4,
+.swagger-ui .responses-inner h5 {
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .response-col_status {
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .response-col_description {
+  color: var(--bridgeup-text-muted) !important;
+}
+
+.swagger-ui .response-col_links {
+  color: var(--bridgeup-text-muted) !important;
+}
+
+/* Response Codes */
+.swagger-ui .responses-table .response > td:first-child {
+  color: var(--bridgeup-text) !important;
+}
+
+/* ===== MODELS ===== */
+.swagger-ui section.models {
+  border: 1px solid var(--bridgeup-border) !important;
+  border-radius: 12px !important;
+  background: var(--bridgeup-bg-dark) !important;
+}
+
+.swagger-ui section.models h4 {
+  color: var(--bridgeup-text) !important;
+  border-bottom: 1px solid var(--bridgeup-border) !important;
+}
+
+.swagger-ui section.models .model-container {
+  background: var(--bridgeup-bg-card) !important;
+  border-radius: 8px !important;
+  margin: 10px 0 !important;
+}
+
+.swagger-ui .model-title {
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .model {
+  color: var(--bridgeup-text-muted) !important;
+}
+
+.swagger-ui .model .property.primitive {
+  color: var(--bridgeup-primary) !important;
+}
+
+/* ===== BUTTONS ===== */
+.swagger-ui .btn {
+  border-radius: 8px !important;
+  font-weight: 500 !important;
+  transition: all 0.2s ease !important;
+}
+
+.swagger-ui .btn.execute {
+  background: var(--bridgeup-primary) !important;
+  border-color: var(--bridgeup-primary) !important;
+  color: white !important;
+}
+
+.swagger-ui .btn.execute:hover {
+  background: var(--bridgeup-primary-dark) !important;
+}
+
+.swagger-ui .btn.cancel {
+  background: transparent !important;
+  border-color: var(--bridgeup-border) !important;
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .btn.authorize {
+  background: transparent !important;
+  border-color: var(--bridgeup-primary) !important;
+  color: var(--bridgeup-primary) !important;
+}
+
+.swagger-ui .btn.authorize svg {
+  fill: var(--bridgeup-primary) !important;
+}
+
+/* ===== SELECT & INPUTS ===== */
+.swagger-ui select {
+  background: var(--bridgeup-bg-card) !important;
+  border: 1px solid var(--bridgeup-border) !important;
+  border-radius: 8px !important;
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui input[type=text],
+.swagger-ui input[type=email],
+.swagger-ui input[type=password],
+.swagger-ui input[type=search],
+.swagger-ui input[type=file],
+.swagger-ui textarea {
+  background: var(--bridgeup-bg-card) !important;
+  border: 1px solid var(--bridgeup-border) !important;
+  border-radius: 8px !important;
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui input::placeholder,
+.swagger-ui textarea::placeholder {
+  color: var(--bridgeup-text-muted) !important;
+}
+
+/* ===== SCROLLBAR ===== */
+.swagger-ui ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.swagger-ui ::-webkit-scrollbar-track {
+  background: var(--bridgeup-bg-darker);
+  border-radius: 4px;
+}
+
+.swagger-ui ::-webkit-scrollbar-thumb {
+  background: var(--bridgeup-bg-card);
+  border-radius: 4px;
+}
+
+.swagger-ui ::-webkit-scrollbar-thumb:hover {
+  background: var(--bridgeup-primary);
+}
+
+/* ===== CODE HIGHLIGHTING ===== */
+.swagger-ui .highlight-code {
+  background: var(--bridgeup-bg-darker) !important;
+  border-radius: 8px !important;
+}
+
+.swagger-ui .highlight-code code {
+  color: var(--bridgeup-text) !important;
+}
+
+/* JSON Syntax */
+.swagger-ui .json-schema-form-item input {
+  background: var(--bridgeup-bg-card) !important;
+  border: 1px solid var(--bridgeup-border) !important;
+  color: var(--bridgeup-text) !important;
+}
+
+/* ===== MODAL / DIALOG ===== */
+.swagger-ui .dialog-ux .modal-ux {
+  background: var(--bridgeup-bg-dark) !important;
+  border: 1px solid var(--bridgeup-border) !important;
+  border-radius: 16px !important;
+}
+
+.swagger-ui .dialog-ux .modal-ux-header {
+  border-bottom: 1px solid var(--bridgeup-border) !important;
+}
+
+.swagger-ui .dialog-ux .modal-ux-header h3 {
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .dialog-ux .modal-ux-content {
+  color: var(--bridgeup-text-muted) !important;
+}
+
+/* ===== LOADING ===== */
+.swagger-ui .loading-container {
+  background: var(--bridgeup-bg-darker) !important;
+}
+
+.swagger-ui .loading-container .loading::after {
+  border-color: var(--bridgeup-primary) transparent transparent !important;
+}
+
+/* ===== EXPAND/COLLAPSE ARROWS ===== */
+.swagger-ui .expand-operation svg,
+.swagger-ui .model-toggle::after {
+  fill: var(--bridgeup-text-muted) !important;
+}
+
+/* ===== TRY IT OUT RESPONSES ===== */
+.swagger-ui .live-responses-table .response-col_status {
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .microlight {
+  background: var(--bridgeup-bg-darker) !important;
+  color: var(--bridgeup-text) !important;
+  border-radius: 8px !important;
+}
+
+/* ===== SERVER DROPDOWN ===== */
+.swagger-ui .servers > label {
+  color: var(--bridgeup-text) !important;
+}
+
+.swagger-ui .servers select {
+  background: var(--bridgeup-bg-card) !important;
+  color: var(--bridgeup-text) !important;
+}
+
+/* ===== MARKDOWN CONTENT ===== */
+.swagger-ui .markdown p,
+.swagger-ui .markdown li {
+  color: var(--bridgeup-text-muted) !important;
+}
+
+.swagger-ui .markdown code {
+  background: var(--bridgeup-bg-card) !important;
+  color: var(--bridgeup-primary) !important;
+  border-radius: 4px !important;
+  padding: 2px 6px !important;
+}

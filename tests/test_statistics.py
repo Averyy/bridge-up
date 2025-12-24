@@ -100,8 +100,9 @@ class TestStatisticsCalculation(unittest.TestCase):
         history = [{'status': 'Available (Raising Soon)', 'duration': 600, 'id': '1'}]
         stats, _ = calculate_bridge_statistics(history)
 
-        self.assertEqual(stats['average_closure_duration'], 0)
-        self.assertEqual(stats['closure_ci'], {'lower': 0, 'upper': 0})
+        # No closure data -> None (not 0)
+        self.assertIsNone(stats['average_closure_duration'])
+        self.assertIsNone(stats['closure_ci'])
         self.assertGreater(stats['average_raising_soon'], 0)
 
         # No raising soon data, only closures
@@ -109,8 +110,9 @@ class TestStatisticsCalculation(unittest.TestCase):
         stats, _ = calculate_bridge_statistics(history)
 
         self.assertGreater(stats['average_closure_duration'], 0)
-        self.assertEqual(stats['average_raising_soon'], 0)
-        self.assertEqual(stats['raising_soon_ci'], {'lower': 0, 'upper': 0})
+        # No raising soon data -> None (not 0)
+        self.assertIsNone(stats['average_raising_soon'])
+        self.assertIsNone(stats['raising_soon_ci'])
 
     def test_history_filtering_construction_removal(self):
         """Test that construction entries are filtered out"""

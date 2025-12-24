@@ -75,8 +75,11 @@ ws.onmessage = (event) => {
         "region": "St Catharines",
         "coordinates": {"lat": 43.19, "lng": -79.20},
         "statistics": {
+          "average_closure_duration": 12,
           "closure_ci": {"lower": 8, "upper": 16},
-          "raising_soon_ci": {"lower": 2, "upper": 5}
+          "average_raising_soon": 3,
+          "raising_soon_ci": {"lower": 2, "upper": 5},
+          "total_entries": 287
         }
       },
       "live": {
@@ -89,6 +92,19 @@ ws.onmessage = (event) => {
   }
 }
 ```
+
+### Statistics Null Handling
+
+Statistics fields return `null` when insufficient historical data exists (fewer than 20 entries):
+
+| Field | With Data (≥20 entries) | Insufficient Data |
+|-------|-------------------------|-------------------|
+| `average_closure_duration` | `12` | `null` |
+| `closure_ci` | `{"lower": 8, "upper": 16}` | `null` |
+| `average_raising_soon` | `3` | `null` |
+| `raising_soon_ci` | `{"lower": 2, "upper": 5}` | `null` |
+
+**Note:** Predictions still work internally with sensible defaults when statistics are null — they just aren't shown to users until enough data exists for meaningful confidence intervals.
 
 ### Status Values
 

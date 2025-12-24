@@ -43,6 +43,7 @@ class RootResponse(BaseModel):
     """API root response with endpoint discovery."""
     name: str = "Bridge Up API"
     description: str = "Real-time bridge status for St. Lawrence Seaway"
+    website: str = "https://bridgeup.app"
     endpoints: EndpointsInfo
 
     model_config = {
@@ -50,6 +51,7 @@ class RootResponse(BaseModel):
             "example": {
                 "name": "Bridge Up API",
                 "description": "Real-time bridge status for St. Lawrence Seaway",
+                "website": "https://bridgeup.app",
                 "endpoints": {
                     "docs": "/docs",
                     "health": "/health",
@@ -510,6 +512,7 @@ def root():
     return {
         "name": "Bridge Up API",
         "description": "Real-time bridge status for St. Lawrence Seaway",
+        "website": "https://bridgeup.app",
         "endpoints": {
             "docs": "/docs",
             "health": "/health",

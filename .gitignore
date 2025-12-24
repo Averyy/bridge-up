@@ -74,4 +74,7 @@ instance/
 *.sqlite3
 # Log files
 logs/
-*.log.*data/
+*.log.*
+
+# Runtime data
+data/

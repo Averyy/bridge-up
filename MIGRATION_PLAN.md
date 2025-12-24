@@ -541,7 +541,7 @@ def calculate_prediction(
     # === CLOSED / CONSTRUCTION: predict when it will OPEN ===
     if status_lower in ('closed', 'construction'):
         elapsed_minutes = (current_time - last_updated).total_seconds() / 60
-        closure_ci = statistics.get('closure_ci', {'lower': 8, 'upper': 16})
+        closure_ci = statistics.get('closure_ci', {'lower': 15, 'upper': 20})
 
         # Case A: Construction with known end_time
         for closure in upcoming_closures:
@@ -615,7 +615,7 @@ def calculate_prediction(
 
         # Pure statistics
         elapsed_minutes = (current_time - last_updated).total_seconds() / 60
-        raising_soon_ci = statistics.get('raising_soon_ci', {'lower': 3, 'upper': 8})
+        raising_soon_ci = statistics.get('raising_soon_ci', {'lower': 15, 'upper': 20})
 
         lower = raising_soon_ci['lower'] - elapsed_minutes
         upper = raising_soon_ci['upper'] - elapsed_minutes

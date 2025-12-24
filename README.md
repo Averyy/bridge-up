@@ -57,6 +57,14 @@ docker compose up -d
 curl https://api.bridgeup.app/health
 ```
 
+### CI/CD Auto-Deploy
+
+Pushing to `main` triggers GitHub Actions which:
+1. Builds Docker image and pushes to Docker Hub
+2. SSHs into VPS and runs `docker compose pull && docker compose up -d`
+
+Required GitHub secrets: `DOCKER_HUB_USERNAME`, `DOCKER_HUB_ACCESS_TOKEN`, `VPS_HOST`, `VPS_USERNAME`, `VPS_SSH_KEY`
+
 ### Local Development
 
 ```bash

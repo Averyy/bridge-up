@@ -30,6 +30,17 @@ jobs:
                   cache-from: type=gha
                   cache-to: type=gha,mode=max
 
+            - name: Deploy to VPS
+              uses: appleboy/ssh-action@v1.0.3
+              with:
+                  host: ${{ secrets.VPS_HOST }}
+                  username: ${{ secrets.VPS_USERNAME }}
+                  key: ${{ secrets.VPS_SSH_KEY }}
+                  script: |
+                      cd /root/bridge-up
+                      docker compose pull
+                      docker compose up -d
+
             - name: Log out of Docker Hub
               if: always()
               run: docker logout

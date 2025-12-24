@@ -1,38 +1,122 @@
-# Bridge Up Backend
+# 🌉 Bridge Up Backend
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-Real-time bridge status monitoring for the St. Lawrence Seaway. Scrapes bridge data, calculates predictive statistics, and serves it via WebSocket and REST API.
+> *Know before you go.* Real-time bridge status and predictions for the St. Lawrence Seaway region.
 
-**Hobby project** - Depends entirely on St Lawrence Seaway API. If they change the API or block access, it breaks. No warranty provided.
+Backend API powering the [Bridge Up iOS app](https://bridgeup.app) — never wait at a closed bridge again.
 
-## Features
+**⚠️ Hobby project** — Depends entirely on St Lawrence Seaway API. If they change the API or block access, it breaks. No warranty provided.
 
-- Monitors bridge status from 5 regions (15 bridges total)
-- Concurrent scraping - all bridges in 0.7 seconds
-- Calculates predictive statistics from historical data
-- Real-time updates every 20-30 seconds via WebSocket
-- FastAPI + uvicorn for high performance
-- JSON file storage (no database dependencies)
-- Docker containerized for easy deployment
-- Thread-safe concurrent execution
-- Smart exponential backoff for failed regions (never gives up)
-- Clean, structured logging with Loguru
+## ✨ Features
 
-## Architecture
+- 🌉 **15 bridges** across 5 regions monitored in real-time
+- ⚡ **Concurrent scraping** — all bridges in ~0.7 seconds
+- 📊 **Predictive intelligence** — reopening estimates based on 300+ closures per bridge
+- 🔄 **Real-time updates** — every 20-30 seconds via WebSocket
+- 🐳 **Docker containerized** — easy deployment
+- 📁 **JSON file storage** — no database dependencies
+- 🔒 **Thread-safe** — concurrent execution with proper locking
+- 🔁 **Smart retry** — exponential backoff for failed regions (never gives up)
 
-```
-St. Lawrence Seaway Websites -> Python Scraper -> JSON Storage -> WebSocket/REST -> iOS/Web Apps
-```
+## 🗺️ Coverage
+
+| Region | Bridges |
+|--------|---------|
+| **St. Catharines** | Highway 20, Glendale Ave, Queenston St, Lakeshore Rd, Carlton St |
+| **Montreal** | Ste-Catherine, Victoria Downstream, Victoria Upstream |
+| **Port Colborne** | Clarence St, Main St, Mellanby Ave |
+| **Beauharnois** | Larocque Bridge, St-Louis-de-Gonzague |
+| **Kahnawake** | CP Railway Bridge 7A & 7B |
+
+## 🔌 API
+
+**Base URL:** `https://api.bridgeup.app`
 
 ### Endpoints
-- `wss://api.bridgeup.app/ws` - WebSocket (real-time updates)
-- `GET /bridges` - HTTP fallback (same data)
-- `GET /bridges/{id}` - Single bridge
-- `GET /health` - Health check
-- `GET /docs` - OpenAPI documentation
 
-## Quick Start
+| Endpoint | Description |
+|----------|-------------|
+| `wss://api.bridgeup.app/ws` | WebSocket — real-time updates |
+| `GET /bridges` | All bridges (same data as WebSocket) |
+| `GET /bridges/{id}` | Single bridge by ID |
+| `GET /health` | Health check |
+| `GET /docs` | OpenAPI documentation |
+
+### REST Example
+
+```bash
+curl https://api.bridgeup.app/bridges
+```
+
+### WebSocket Example
+
+```javascript
+const ws = new WebSocket('wss://api.bridgeup.app/ws');
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  console.log(data.bridges);
+};
+```
+
+### Response Format
+
+```json
+{
+  "last_updated": "2025-12-24T12:30:00-05:00",
+  "available_bridges": [
+    {"id": "SCT_CarltonSt", "name": "Carlton St.", "region_short": "SCT", "region": "St Catharines"}
+  ],
+  "bridges": {
+    "SCT_CarltonSt": {
+      "static": {
+        "name": "Carlton St.",
+        "region": "St Catharines",
+        "coordinates": {"lat": 43.19, "lng": -79.20},
+        "statistics": {
+          "closure_ci": {"lower": 8, "upper": 16},
+          "raising_soon_ci": {"lower": 2, "upper": 5}
+        }
+      },
+      "live": {
+        "status": "Open",
+        "last_updated": "2025-12-24T12:30:00-05:00",
+        "predicted": null,
+        "upcoming_closures": []
+      }
+    }
+  }
+}
+```
+
+### Status Values
+
+| Status | Meaning |
+|--------|---------|
+| `Open` | Bridge is open to traffic |
+| `Closed` | Bridge is raised for vessel |
+| `Closing soon` | Will close shortly |
+| `Opening` | Currently lowering |
+| `Construction` | Maintenance/work |
+
+## 🏗️ Architecture
+
+```
+St. Lawrence Seaway API → Python Scraper → JSON Storage → FastAPI → WebSocket/REST → iOS/Web
+```
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `main.py` | FastAPI app with WebSocket + scheduler |
+| `scraper.py` | Bridge data scraping and JSON updates |
+| `predictions.py` | Prediction calculations |
+| `stats_calculator.py` | Historical statistics |
+| `config.py` | Bridge configuration |
+
+## 🚀 Quick Start
 
 ### Prerequisites
 - Docker (recommended) or Python 3.11+
@@ -41,98 +125,61 @@ St. Lawrence Seaway Websites -> Python Scraper -> JSON Storage -> WebSocket/REST
 ### Docker (Production)
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/bridge-up-backend
+git clone https://github.com/Averyy/bridge-up-backend
 cd bridge-up-backend
 
 # Create environment file
 echo "OLD_JSON_ENDPOINT=your_endpoint_here" > .env
 echo "NEW_JSON_ENDPOINT=your_endpoint_here" >> .env
 
-# Pull and run
-docker compose pull
+# Run
 docker compose up -d
 
 # Check health
 curl https://api.bridgeup.app/health
 ```
 
-### CI/CD Auto-Deploy
+### Initial Setup
 
-Pushing to `main` triggers GitHub Actions which:
-1. Builds Docker image and pushes to Docker Hub
-2. SSHs into VPS and runs `docker compose pull && docker compose up -d`
+On first deployment, run statistics calculation (required for predictions):
 
-Required GitHub secrets: `DOCKER_HUB_USERNAME`, `DOCKER_HUB_ACCESS_TOKEN`, `VPS_HOST`, `VPS_USERNAME`, `VPS_SSH_KEY`
+```bash
+docker exec bridge-up python -c "from scraper import daily_statistics_update; daily_statistics_update()"
+```
+
+Statistics recalculate automatically daily at 3 AM.
 
 ### Local Development
 
 ```bash
-# Clone and setup
-git clone https://github.com/yourusername/bridge-up-backend
-cd bridge-up-backend
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-
-# Create .env with API endpoints
-# Run development server
 uvicorn main:app --reload
 ```
 
-### Initial Setup: Statistics Required
+## 🔄 CI/CD
 
-On first deployment, **you must manually run the statistics calculation**. The iOS app requires statistics data.
+Pushing to `main` triggers GitHub Actions:
+1. Builds Docker image → pushes to Docker Hub
+2. SSHs into VPS → `docker compose pull && docker compose up -d`
 
-```bash
-# Run once after initial deployment
-docker exec bridge-up python -c "from scraper import daily_statistics_update; daily_statistics_update()"
-```
+**Required secrets:** `DOCKER_HUB_USERNAME`, `DOCKER_HUB_ACCESS_TOKEN`, `VPS_HOST`, `VPS_USERNAME`, `VPS_SSH_KEY`
 
-Statistics are automatically recalculated daily at 3 AM.
+## ⏰ Schedule
 
-## Key Files
+- **6 AM – 10 PM:** Scrapes every 20 seconds
+- **10 PM – 6 AM:** Scrapes every 30 seconds
+- **3 AM daily:** Statistics recalculation
 
-- `main.py` - FastAPI application with WebSocket + scheduler
-- `scraper.py` - Bridge data scraping and JSON updates
-- `predictions.py` - Prediction calculations (moved from iOS)
-- `stats_calculator.py` - Historical statistics calculation
-- `shared.py` - Shared state module (avoids circular imports)
-- `config.py` - Bridge configuration
+## 🧪 Testing
 
-## Schedule
-
-- Scrapes every 20 seconds from 6:00 AM to 9:59 PM
-- Scrapes every 30 seconds from 10:00 PM to 5:59 AM
-- Runs daily statistics update at 3 AM
-
-## Testing
-
-**Always run tests before deploying or committing changes!**
+**Always run tests before deploying!**
 
 ```bash
-# Run all tests (required before deployment)
 python run_tests.py
-
-# Individual test files
-python tests/test_parsers.py          # JSON parsing logic
-python tests/test_statistics.py       # Prediction calculations
-python tests/test_predictions.py      # Prediction logic (from iOS)
-python tests/test_status_edge_cases.py # Status interpretation
-python tests/test_configuration.py    # Config validation
-python tests/test_thread_safety.py    # Concurrent access safety
-python tests/test_backoff.py          # Exponential retry logic
-python tests/test_network_backoff.py  # Network failure handling
-python tests/test_logging.py          # Logger configuration
 ```
 
-## Contributing
+## 📄 License
 
-PRs welcome! But **always run tests first**:
-```bash
-python run_tests.py  # Must pass before submitting PR
-```
-
-## License
-
-GPL v3: You can do whatever you want as long you give attribution and the software you use it in also has an open license.
+GPL v3 — Do whatever you want as long as you give attribution and your derivative work is also open source.

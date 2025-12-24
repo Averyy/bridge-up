@@ -217,9 +217,10 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
 ### Deployment Process
 ```bash
 # On VPS (api.bridgeup.app)
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 curl https://api.bridgeup.app/health
-docker exec bridgeup-app python -c "from scraper import daily_statistics_update; daily_statistics_update()"
+docker exec bridge-up python -c "from scraper import daily_statistics_update; daily_statistics_update()"
 ```
 
 ### Test Results

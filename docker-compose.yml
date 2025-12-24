@@ -6,8 +6,8 @@
 
 services:
   app:
-    build: .
-    container_name: bridgeup-app
+    image: averyyyy/bridge-up:latest
+    container_name: bridge-up
     ports:
       - "8000:8000"
     volumes:

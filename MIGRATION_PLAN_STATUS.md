@@ -102,7 +102,7 @@ sudo systemctl reload caddy
 
 4. Deploy the application:
 ```bash
-docker compose up -d --build
+docker compose pull && docker compose up -d
 ```
 
 5. Verify health:
@@ -112,7 +112,7 @@ curl https://api.bridgeup.app/health
 
 6. Run initial statistics (required for iOS):
 ```bash
-docker exec bridgeup-app python -c "from scraper import daily_statistics_update; daily_statistics_update()"
+docker exec bridge-up python -c "from scraper import daily_statistics_update; daily_statistics_update()"
 ```
 
 ---

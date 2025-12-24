@@ -5,8 +5,8 @@
 # Caddy automatically provisions SSL certificates from Let's Encrypt
 
 api.bridgeup.app {
-    # Reverse proxy to uvicorn
-    reverse_proxy localhost:8000
+    # Reverse proxy to bridge-up container
+    reverse_proxy bridge-up:8000
 
     # Enable compression
     encode gzip

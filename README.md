@@ -49,8 +49,9 @@ cd bridge-up-backend
 echo "OLD_JSON_ENDPOINT=your_endpoint_here" > .env
 echo "NEW_JSON_ENDPOINT=your_endpoint_here" >> .env
 
-# Build and run
-docker compose up -d --build
+# Pull and run
+docker compose pull
+docker compose up -d
 
 # Check health
 curl https://api.bridgeup.app/health
@@ -77,7 +78,7 @@ On first deployment, **you must manually run the statistics calculation**. The i
 
 ```bash
 # Run once after initial deployment
-docker exec bridgeup-app python -c "from scraper import daily_statistics_update; daily_statistics_update()"
+docker exec bridge-up python -c "from scraper import daily_statistics_update; daily_statistics_update()"
 ```
 
 Statistics are automatically recalculated daily at 3 AM.

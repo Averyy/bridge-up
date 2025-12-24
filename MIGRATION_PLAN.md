@@ -767,8 +767,8 @@ services:
     restart: always
 
   app:
-    build: .
-    container_name: bridgeup-app
+    image: averyyyy/bridge-up:latest
+    container_name: bridge-up
     expose:
       - "8000"
     volumes:
@@ -791,7 +791,7 @@ volumes:
 ### Caddyfile
 ```
 api.bridgeup.app {
-    reverse_proxy bridgeup-app:8000
+    reverse_proxy bridge-up:8000
 }
 ```
 
@@ -1162,9 +1162,9 @@ jobs:
           username: root
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            cd /root/bridge-up-backend
-            git pull
-            docker compose up -d --build
+            cd /root/bridge-up
+            docker compose pull
+            docker compose up -d
 ```
 
 Now every push to main auto-deploys.

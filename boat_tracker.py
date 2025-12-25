@@ -712,8 +712,8 @@ class BoatTracker:
 
     async def _poll_loop(self):
         """Poll AISHub every 60 seconds (rate limit)."""
-        # Initial delay to let UDP data come in first
-        await asyncio.sleep(5)
+        # Initial delay - prevents rate limit on container restart
+        await asyncio.sleep(60)
 
         while self._running:
             if self.aishub_poller:

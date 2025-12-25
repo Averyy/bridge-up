@@ -58,6 +58,16 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
 - `GET /health` - Health check with status info
 - `GET /docs` - Custom Swagger UI with dark theme (matches bridgeup.app branding)
 
+### Health Endpoint (`/health`)
+
+Returns monitoring info:
+- `last_updated`: Last time bridge data changed
+- `last_scrape`: Last scrape attempt timestamp
+- `last_scrape_had_changes`: Whether last scrape found changes
+- `statistics_last_updated`: Last time statistics were calculated (daily at 3 AM or manual)
+- `bridges_count`: Number of bridges in data
+- `websocket_clients`: Connected WebSocket clients
+
 ### API Documentation (`/docs`)
 
 Custom-styled Swagger UI with Bridge Up dark theme:
@@ -112,7 +122,7 @@ Statistics fields return `null` only when no data exists for that type:
 | `average_raising_soon` | `3` | `null` |
 | `raising_soon_ci` | `{"lower": 2, "upper": 5}` | `null` |
 
-**Note**: CI is calculated with any amount of data (2+ entries). With fewer entries, the CI range will be wider.
+**Note**: CI requires 2+ entries to calculate. With fewer entries, CI is `null`. More entries = narrower CI range.
 
 **Predictions still work**: Backend uses internal defaults (15-20 min) for prediction calculations when stats are `null`.
 

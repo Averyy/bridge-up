@@ -4,20 +4,20 @@
 
 > *Know before you go.* Real-time bridge status and predictions for the St. Lawrence Seaway region.
 
-Backend API powering the [Bridge Up iOS app](https://bridgeup.app) — never wait at a closed bridge again.
+Backend API powering the [Bridge Up iOS app](https://bridgeup.app). Never wait at a closed bridge again.
 
-**⚠️ Hobby project** — Depends entirely on St Lawrence Seaway API. If they change the API or block access, it breaks. No warranty provided.
+**⚠️ Hobby project:** Depends entirely on St Lawrence Seaway API. If they change the API or block access, it breaks. No warranty provided.
 
 ## ✨ Features
 
 - 🌉 **15 bridges** across 5 regions monitored in real-time
-- ⚡ **Concurrent scraping** — all bridges in ~0.7 seconds
-- 📊 **Predictive intelligence** — reopening estimates based on 300+ closures per bridge
-- 🔄 **Real-time updates** — every 20-30 seconds via WebSocket
-- 🐳 **Docker containerized** — easy deployment
-- 📁 **JSON file storage** — no database dependencies
-- 🔒 **Thread-safe** — concurrent execution with proper locking
-- 🔁 **Smart retry** — exponential backoff for failed regions (never gives up)
+- ⚡ **Concurrent scraping:** all bridges in ~0.7 seconds
+- 📊 **Predictive intelligence:** reopening estimates based on 300+ closures per bridge
+- 🔄 **Real-time updates:** every 20-30 seconds via WebSocket
+- 🐳 **Docker containerized:** easy deployment
+- 📁 **JSON file storage:** no database dependencies
+- 🔒 **Thread-safe:** concurrent execution with proper locking
+- 🔁 **Smart retry:** exponential backoff for failed regions (never gives up)
 
 ## 🗺️ Coverage
 
@@ -37,12 +37,12 @@ Backend API powering the [Bridge Up iOS app](https://bridgeup.app) — never wai
 
 | Endpoint | Description |
 |----------|-------------|
-| `wss://api.bridgeup.app/ws` | WebSocket — real-time updates |
+| `wss://api.bridgeup.app/ws` | WebSocket (real-time updates) |
 | `GET /` | API root with endpoint discovery |
 | `GET /bridges` | All bridges (same data as WebSocket) |
 | `GET /bridges/{id}` | Single bridge by ID |
 | `GET /health` | Health check |
-| `GET /docs` | OpenAPI documentation (custom dark theme) |
+| `GET /docs` | API documentation |
 
 ### REST Example
 
@@ -105,7 +105,7 @@ Statistics fields return `null` only when no historical data exists for that typ
 | `average_raising_soon` | `3` | `null` |
 | `raising_soon_ci` | `{"lower": 2, "upper": 5}` | `null` |
 
-**Note:** CI is calculated with any amount of data (2+ entries). With fewer entries, the CI range will be wider. Predictions still work internally with sensible defaults when statistics are null.
+**Note:** CI requires 2+ entries to calculate. With fewer entries, CI is `null`. More entries = narrower CI range. Predictions still work internally with sensible defaults when statistics are null.
 
 ### Status Values
 
@@ -158,7 +158,7 @@ curl https://api.bridgeup.app/health
 
 ### Initial Setup
 
-On first deployment, run statistics calculation (required for predictions):
+After the system has collected historical data (typically 24+ hours), run statistics calculation for predictions:
 
 ```bash
 docker exec bridge-up python -c "from scraper import daily_statistics_update; daily_statistics_update()"
@@ -199,4 +199,4 @@ python run_tests.py
 
 ## 📄 License
 
-GPL v3 — Do whatever you want as long as you give attribution and your derivative work is also open source.
+GPL v3: Do whatever you want as long as you give attribution and your derivative work is also open source.

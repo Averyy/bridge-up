@@ -750,6 +750,9 @@ def daily_statistics_update() -> None:
         data["last_updated"] = datetime.now(TIMEZONE).isoformat()
         atomic_write_json("data/bridges.json", data)
 
+    # Track when statistics were last calculated
+    shared.statistics_last_updated = datetime.now(TIMEZONE)
+
     logger.info(f"Daily statistics update complete: {updated_count} bridges updated")
 
 

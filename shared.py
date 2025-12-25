@@ -21,6 +21,9 @@ TIMEZONE = pytz.timezone('America/Toronto')
 last_scrape_time: Optional[datetime] = None
 last_scrape_had_changes: bool = False
 
+# Last statistics calculation timestamp
+statistics_last_updated: Optional[datetime] = None
+
 # In-memory cache of current bridge state
 # Structure: {bridge_id: {static: {...}, live: {...}}}
 last_known_state: Dict[str, Any] = {}

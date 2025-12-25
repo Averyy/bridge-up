@@ -92,18 +92,19 @@ def calculate_bridge_statistics(history_data: List[Dict[str, Any]]) -> Tuple[Dic
             raising_soon_durations.append(duration / 60)
 
     # Calculate statistics
+    # CI requires 2+ entries for meaningful calculation
     stats = {}
 
     if closure_durations:
         stats['average_closure_duration'] = round(sum(closure_durations) / len(closure_durations))
-        stats['closure_ci'] = calculate_confidence_interval(closure_durations)
+        stats['closure_ci'] = calculate_confidence_interval(closure_durations) if len(closure_durations) >= 2 else None
     else:
         stats['average_closure_duration'] = None
         stats['closure_ci'] = None
 
     if raising_soon_durations:
         stats['average_raising_soon'] = round(sum(raising_soon_durations) / len(raising_soon_durations))
-        stats['raising_soon_ci'] = calculate_confidence_interval(raising_soon_durations)
+        stats['raising_soon_ci'] = calculate_confidence_interval(raising_soon_durations) if len(raising_soon_durations) >= 2 else None
     else:
         stats['average_raising_soon'] = None
         stats['raising_soon_ci'] = None

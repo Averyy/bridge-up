@@ -305,12 +305,24 @@ CSS changes can break layout in unexpected ways. Always verify with puppeteer sc
 **Reason**: User wanted CI to show immediately rather than waiting for 20+ entries.
 
 **Change**: Removed the `MIN_ENTRIES_FOR_CI = 20` check in `stats_calculator.py`
-- CI now calculated with any amount of data (needs 2+ entries for math)
-- Fewer entries = wider CI range (statistically correct)
-- Only returns `null` when no data exists at all
+- CI requires 2+ entries (needed for variance calculation)
+- 0-1 entries: returns `null`
+- 2+ entries: returns actual CI (fewer entries = wider range)
+
+### Feature: Added `statistics_last_updated` to Health Endpoint
+**Reason**: User wanted to verify when statistics were last calculated.
+
+**Implementation**:
+- Added `statistics_last_updated` field to `shared.py`
+- `scraper.py` sets timestamp after `daily_statistics_update()` completes
+- Health endpoint returns this timestamp (null if never run)
 
 ### Files Modified
-- `scraper.py` - Fixed `daily_statistics_update()` to work in CLI mode
-- `stats_calculator.py` - Removed MIN_ENTRIES_FOR_CI threshold
-- `CLAUDE.md`, `README.md`, `.claude/shared/project-context.md` - Updated null handling docs
+- `scraper.py` - Fixed `daily_statistics_update()` CLI mode, sets stats timestamp
+- `stats_calculator.py` - Removed threshold, CI requires 2+ entries
+- `shared.py` - Added `statistics_last_updated` field
+- `main.py` - Added `statistics_last_updated` to HealthResponse and health endpoint
+- `CLAUDE.md` - Added health endpoint docs, updated null handling
+- `README.md` - Updated health endpoint description, null handling
+- `.claude/shared/project-context.md` - Updated null handling docs
 - `.claude/agent/memory.md` - This session

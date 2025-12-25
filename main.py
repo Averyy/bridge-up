@@ -39,6 +39,7 @@ class EndpointsInfo(BaseModel):
     docs: str = "/docs"
     health: str = "/health"
     bridges: str = "/bridges"
+    boats: str = "/boats"
     websocket: str = "wss://api.bridgeup.app/ws"
 
 
@@ -59,6 +60,7 @@ class RootResponse(BaseModel):
                     "docs": "/docs",
                     "health": "/health",
                     "bridges": "/bridges",
+                    "boats": "/boats",
                     "websocket": "wss://api.bridgeup.app/ws"
                 }
             }
@@ -620,6 +622,7 @@ def root():
             "docs": "/docs",
             "health": "/health",
             "bridges": "/bridges",
+            "boats": "/boats",
             "websocket": "wss://api.bridgeup.app/ws"
         }
     }

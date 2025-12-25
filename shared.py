@@ -48,3 +48,6 @@ main_loop: Optional[asyncio.AbstractEventLoop] = None
 
 # File lock for atomic writes to bridges.json
 bridges_file_lock = threading.Lock()
+
+# File lock for history file operations (prevents race with max_instances > 1)
+history_file_lock = threading.Lock()

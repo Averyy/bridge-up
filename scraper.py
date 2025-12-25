@@ -33,7 +33,7 @@ from shared import (
     last_known_state, last_known_state_lock,
     region_failures, region_failures_lock,
     endpoint_cache, endpoint_cache_lock,
-    bridges_file_lock
+    bridges_file_lock, history_file_lock
 )
 
 # Configure logger for cleaner output
@@ -438,27 +438,29 @@ def append_to_history_file(bridge_id: str, entry: Dict[str, Any]) -> None:
     Append entry to bridge history file (max 300 entries).
 
     Replaces Firestore subcollection with JSON file.
+    Thread-safe: uses history_file_lock to prevent race conditions.
     """
     path = f"data/history/{bridge_id}.json"
 
-    # Read existing or start fresh
-    if os.path.exists(path):
-        try:
-            with open(path) as f:
-                history = json.load(f)
-        except (json.JSONDecodeError, IOError):
+    with history_file_lock:
+        # Read existing or start fresh
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    history = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                history = []
+        else:
             history = []
-    else:
-        history = []
 
-    # Prepend new entry (newest first)
-    history.insert(0, entry)
+        # Prepend new entry (newest first)
+        history.insert(0, entry)
 
-    # Trim to max 300 entries
-    history = history[:300]
+        # Trim to max 300 entries
+        history = history[:300]
 
-    # Atomic write
-    atomic_write_json(path, history)
+        # Atomic write
+        atomic_write_json(path, history)
 
 
 def update_history(bridge_id: str, new_status: str, current_time: datetime, old_status: Optional[str] = None) -> None:
@@ -466,47 +468,25 @@ def update_history(bridge_id: str, new_status: str, current_time: datetime, old_
     Update bridge history when status changes.
 
     Replaces update_bridge_history() for Firestore.
+    Thread-safe: uses history_file_lock to prevent race conditions.
     """
     path = f"data/history/{bridge_id}.json"
 
-    # Read existing history
-    if os.path.exists(path):
-        try:
-            with open(path) as f:
-                history = json.load(f)
-        except (json.JSONDecodeError, IOError):
+    with history_file_lock:
+        # Read existing history
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    history = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                history = []
+        else:
             history = []
-    else:
-        history = []
 
-    doc_id = generate_history_doc_id(current_time)
+        doc_id = generate_history_doc_id(current_time)
 
-    if not history:
-        # No history - create first entry
-        new_entry = {
-            'id': doc_id,
-            'start_time': current_time.isoformat(),
-            'end_time': None,
-            'status': new_status,
-            'duration': None
-        }
-        history.insert(0, new_entry)
-    else:
-        last_entry = history[0]
-        if last_entry.get('status') != new_status:
-            # Status changed - close old entry, create new one
-            end_time = current_time
-            start_time = parse_datetime(last_entry.get('start_time'))
-            if start_time:
-                duration = round((end_time - start_time).total_seconds())
-            else:
-                duration = None
-
-            # Update last entry
-            last_entry['end_time'] = end_time.isoformat()
-            last_entry['duration'] = duration
-
-            # Create new entry
+        if not history:
+            # No history - create first entry
             new_entry = {
                 'id': doc_id,
                 'start_time': current_time.isoformat(),
@@ -515,12 +495,36 @@ def update_history(bridge_id: str, new_status: str, current_time: datetime, old_
                 'duration': None
             }
             history.insert(0, new_entry)
+        else:
+            last_entry = history[0]
+            if last_entry.get('status') != new_status:
+                # Status changed - close old entry, create new one
+                end_time = current_time
+                start_time = parse_datetime(last_entry.get('start_time'))
+                if start_time:
+                    duration = round((end_time - start_time).total_seconds())
+                else:
+                    duration = None
 
-    # Trim to max 300 entries
-    history = history[:300]
+                # Update last entry
+                last_entry['end_time'] = end_time.isoformat()
+                last_entry['duration'] = duration
 
-    # Atomic write
-    atomic_write_json(path, history)
+                # Create new entry
+                new_entry = {
+                    'id': doc_id,
+                    'start_time': current_time.isoformat(),
+                    'end_time': None,
+                    'status': new_status,
+                    'duration': None
+                }
+                history.insert(0, new_entry)
+
+        # Trim to max 300 entries
+        history = history[:300]
+
+        # Atomic write
+        atomic_write_json(path, history)
 
 
 def update_json_and_broadcast(bridges: List[Dict[str, Any]], region: str, shortform: str) -> None:
@@ -655,6 +659,7 @@ def update_json_and_broadcast(bridges: List[Dict[str, Any]], region: str, shortf
 
     # Write to JSON file and broadcast if changes made
     if updates_made:
+        shared.last_scrape_had_changes = True
         with bridges_file_lock:
             # Read current file
             if os.path.exists("data/bridges.json"):
@@ -704,36 +709,38 @@ def daily_statistics_update() -> None:
     for bridge_id in bridge_ids:
         history_path = f"data/history/{bridge_id}.json"
 
-        # Read history file
-        if os.path.exists(history_path):
-            try:
-                with open(history_path) as f:
-                    history = json.load(f)
-            except (json.JSONDecodeError, IOError):
+        # Read and potentially write history file (protected by lock)
+        with history_file_lock:
+            # Read history file
+            if os.path.exists(history_path):
+                try:
+                    with open(history_path) as f:
+                        history = json.load(f)
+                except (json.JSONDecodeError, IOError):
+                    history = []
+            else:
                 history = []
-        else:
-            history = []
 
-        if not history:
-            continue
+            if not history:
+                continue
 
-        # Convert to format expected by stats_calculator
-        history_data = []
-        for entry in history:
-            history_data.append({
-                'id': entry.get('id', ''),
-                'status': entry.get('status', ''),
-                'duration': entry.get('duration'),
-                'start_time': parse_datetime(entry.get('start_time')) or datetime.min
-            })
+            # Convert to format expected by stats_calculator
+            history_data = []
+            for entry in history:
+                history_data.append({
+                    'id': entry.get('id', ''),
+                    'status': entry.get('status', ''),
+                    'duration': entry.get('duration'),
+                    'start_time': parse_datetime(entry.get('start_time')) or datetime.min
+                })
 
-        # Calculate statistics
-        stats, entries_to_delete = calculate_bridge_statistics(history_data)
+            # Calculate statistics
+            stats, entries_to_delete = calculate_bridge_statistics(history_data)
 
-        # Remove old entries from history file
-        if entries_to_delete:
-            history = [e for e in history if e.get('id') not in entries_to_delete]
-            atomic_write_json(history_path, history)
+            # Remove old entries from history file
+            if entries_to_delete:
+                history = [e for e in history if e.get('id') not in entries_to_delete]
+                atomic_write_json(history_path, history)
 
         # Update statistics directly in the data dict (works for both CLI and app)
         if bridge_id in data["bridges"]:
@@ -819,6 +826,9 @@ def scrape_and_update() -> None:
     start_time = datetime.now(TIMEZONE)
     logger.info("Scraping...")
 
+    # Reset change flag for this scrape cycle
+    shared.last_scrape_had_changes = False
+
     success_count = 0
     fail_count = 0
 
@@ -843,9 +853,8 @@ def scrape_and_update() -> None:
     end_time = datetime.now(TIMEZONE)
     duration = (end_time - start_time).total_seconds()
 
-    # Update last scrape time and change flag
+    # Update last scrape time (change flag already set by update_json_and_broadcast if needed)
     shared.last_scrape_time = end_time
-    shared.last_scrape_had_changes = updates_made
 
     logger.info(f"Done in {duration:.1f}s - All: {success_count} ✓, {fail_count} ✗")
 

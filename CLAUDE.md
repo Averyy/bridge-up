@@ -103,18 +103,18 @@ Custom-styled Swagger UI with Bridge Up dark theme:
 
 ### Statistics Null Handling
 
-Statistics fields return `null` when insufficient data exists:
+Statistics fields return `null` only when no data exists for that type:
 
-| Field | With Data (≥20 entries) | Insufficient Data |
-|-------|-------------------------|-------------------|
+| Field | With Data | No Data |
+|-------|-----------|---------|
 | `average_closure_duration` | `12` | `null` |
 | `closure_ci` | `{"lower": 8, "upper": 16}` | `null` |
 | `average_raising_soon` | `3` | `null` |
 | `raising_soon_ci` | `{"lower": 2, "upper": 5}` | `null` |
 
-**Why**: Prevents displaying misleading "95% CI" when there's not enough data for meaningful statistics. iOS should show "N/A" when these fields are `null`.
+**Note**: CI is calculated with any amount of data (2+ entries). With fewer entries, the CI range will be wider.
 
-**Predictions still work**: Backend uses internal defaults (15-20 min) for prediction calculations even when displayed stats are `null`.
+**Predictions still work**: Backend uses internal defaults (15-20 min) for prediction calculations when stats are `null`.
 
 ## Bridge Status Mapping (DO NOT CHANGE)
 
@@ -243,7 +243,7 @@ docker exec bridge-up python -c "from scraper import daily_statistics_update; da
 - **Updated**: stats_calculator.py (simplified API)
 - **Added**: Custom Swagger UI theme (branded dark mode)
 - **Added**: Response models with examples in API docs
-- **Changed**: Statistics return `null` when insufficient data (<20 entries)
+- **Changed**: CI always calculated when data exists (no minimum threshold)
 - **Added**: `last_scrape_had_changes` to health endpoint
 
 ### June 2025: Performance & Reliability

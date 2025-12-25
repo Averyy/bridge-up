@@ -96,16 +96,16 @@ ws.onmessage = (event) => {
 
 ### Statistics Null Handling
 
-Statistics fields return `null` when insufficient historical data exists (fewer than 20 entries):
+Statistics fields return `null` only when no historical data exists for that type:
 
-| Field | With Data (≥20 entries) | Insufficient Data |
-|-------|-------------------------|-------------------|
+| Field | With Data | No Data |
+|-------|-----------|---------|
 | `average_closure_duration` | `12` | `null` |
 | `closure_ci` | `{"lower": 8, "upper": 16}` | `null` |
 | `average_raising_soon` | `3` | `null` |
 | `raising_soon_ci` | `{"lower": 2, "upper": 5}` | `null` |
 
-**Note:** Predictions still work internally with sensible defaults when statistics are null — they just aren't shown to users until enough data exists for meaningful confidence intervals.
+**Note:** CI is calculated with any amount of data (2+ entries). With fewer entries, the CI range will be wider. Predictions still work internally with sensible defaults when statistics are null.
 
 ### Status Values
 

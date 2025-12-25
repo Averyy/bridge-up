@@ -185,10 +185,11 @@ docker exec bridge-up python -c "from scraper import daily_statistics_update; da
 8. **Test Swagger UI visually** - CSS changes can break layout unexpectedly
 
 ## Statistics Null Handling
-Statistics fields return `null` when insufficient data (<20 entries):
+Statistics fields return `null` only when no data exists for that type:
 - `average_closure_duration`, `closure_ci`, `average_raising_soon`, `raising_soon_ci`
+- CI is calculated with any amount of data (2+ entries) - fewer entries = wider range
 - Predictions still work internally with defaults: `{'lower': 15, 'upper': 20}`
-- iOS should not display CI to users when null
+- iOS should handle null gracefully (show "N/A" or hide the field)
 
 ## Business Context
 - **Users**: Travelers who need real-time bridge status

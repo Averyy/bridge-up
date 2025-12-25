@@ -682,19 +682,23 @@ def daily_statistics_update() -> None:
     Recalculate statistics for all bridges from history files.
 
     Runs daily at 3 AM to update predictions.
+    Works both when called from running app (updates in-memory state)
+    and when called from CLI (updates file directly).
     """
     logger.info("Starting daily statistics update...")
 
-    # Get all bridge IDs from current state
-    with last_known_state_lock:
-        bridge_ids = list(last_known_state.keys())
-
-    if not bridge_ids:
-        # Load from bridges.json if state is empty
+    # Load bridges.json to get bridge IDs and current data
+    with bridges_file_lock:
         if os.path.exists("data/bridges.json"):
             with open("data/bridges.json") as f:
                 data = json.load(f)
-            bridge_ids = list(data.get("bridges", {}).keys())
+        else:
+            data = {"last_updated": None, "available_bridges": [], "bridges": {}}
+
+    bridge_ids = list(data.get("bridges", {}).keys())
+    if not bridge_ids:
+        logger.warning("No bridges found in bridges.json")
+        return
 
     updated_count = 0
     for bridge_id in bridge_ids:
@@ -709,6 +713,9 @@ def daily_statistics_update() -> None:
                 history = []
         else:
             history = []
+
+        if not history:
+            continue
 
         # Convert to format expected by stats_calculator
         history_data = []
@@ -728,24 +735,18 @@ def daily_statistics_update() -> None:
             history = [e for e in history if e.get('id') not in entries_to_delete]
             atomic_write_json(history_path, history)
 
-        # Update statistics in memory and file
-        with last_known_state_lock:
-            if bridge_id in last_known_state:
-                last_known_state[bridge_id]['static']['statistics'] = stats
-                updated_count += 1
+        # Update statistics directly in the data dict (works for both CLI and app)
+        if bridge_id in data["bridges"]:
+            data["bridges"][bridge_id]["static"]["statistics"] = stats
+            updated_count += 1
 
-    # Write updated state to bridges.json
+            # Also update in-memory state if app is running
+            with last_known_state_lock:
+                if bridge_id in last_known_state:
+                    last_known_state[bridge_id]['static']['statistics'] = stats
+
+    # Write updated data to bridges.json
     with bridges_file_lock:
-        if os.path.exists("data/bridges.json"):
-            with open("data/bridges.json") as f:
-                data = json.load(f)
-        else:
-            data = {"last_updated": None, "available_bridges": [], "bridges": {}}
-
-        with last_known_state_lock:
-            for bridge_id, bridge_data in last_known_state.items():
-                data["bridges"][bridge_id] = bridge_data
-
         data["last_updated"] = datetime.now(TIMEZONE).isoformat()
         atomic_write_json("data/bridges.json", data)
 

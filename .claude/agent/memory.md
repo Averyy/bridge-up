@@ -268,10 +268,14 @@ docker exec bridge-up python -c "from scraper import daily_statistics_update; da
 ### Statistics Null Handling
 **Problem**: Statistics showed misleading CI values (8-16m, 3-8m) when insufficient data existed
 
-**Solution**:
+**Original Solution** (December 24):
 - Return `null` for statistics when <20 entries (MIN_ENTRIES_FOR_CI)
-- Predictions still work internally with sensible defaults: `statistics.get('closure_ci') or {'lower': 15, 'upper': 20}`
-- iOS app should handle null gracefully (don't show CI to users)
+- Predictions still work internally with sensible defaults
+
+**Updated** (December 25): Removed MIN_ENTRIES_FOR_CI threshold entirely
+- CI now calculated with any amount of data (2+ entries needed for math)
+- Fewer entries = wider CI range (statistically correct behavior)
+- iOS app should handle null gracefully (only null when no data at all)
 
 ### Files Modified
 - `main.py` - Custom Swagger endpoint, contact URL, response models
@@ -284,3 +288,29 @@ docker exec bridge-up python -c "from scraper import daily_statistics_update; da
 
 ### Key Lesson: Always Test Swagger UI Visually
 CSS changes can break layout in unexpected ways. Always verify with puppeteer screenshots before committing.
+
+## Session: December 25, 2024 - Statistics Fixes
+
+### Bug Fixed: daily_statistics_update() CLI Mode
+**Problem**: Running `daily_statistics_update()` from CLI showed "0 bridges updated" even though history existed.
+
+**Root Cause**: The function checked `if bridge_id in last_known_state` before updating, but `last_known_state` is empty when running from CLI (only populated when main app runs).
+
+**Solution**: Update `bridges.json` directly instead of going through `last_known_state`:
+- Load bridges.json at start
+- Calculate stats and update the data dict directly
+- Also update in-memory state if app is running (for when called from scheduler)
+
+### Change: Removed MIN_ENTRIES_FOR_CI Threshold
+**Reason**: User wanted CI to show immediately rather than waiting for 20+ entries.
+
+**Change**: Removed the `MIN_ENTRIES_FOR_CI = 20` check in `stats_calculator.py`
+- CI now calculated with any amount of data (needs 2+ entries for math)
+- Fewer entries = wider CI range (statistically correct)
+- Only returns `null` when no data exists at all
+
+### Files Modified
+- `scraper.py` - Fixed `daily_statistics_update()` to work in CLI mode
+- `stats_calculator.py` - Removed MIN_ENTRIES_FOR_CI threshold
+- `CLAUDE.md`, `README.md`, `.claude/shared/project-context.md` - Updated null handling docs
+- `.claude/agent/memory.md` - This session

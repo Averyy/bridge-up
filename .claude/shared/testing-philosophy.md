@@ -29,9 +29,9 @@ We test what could fail silently and impact users. We don't test infrastructure 
 
 ## Test Stats
 
-- **33 tests** covering core logic + edge cases
+- **33+ tests** covering core logic + edge cases
 - **<1 second** execution time
-- **4 test files** organized by domain
+- **9 test files** organized by domain
 
 ## Running Tests
 

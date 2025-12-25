@@ -11,6 +11,7 @@ Backend API powering the [Bridge Up iOS app](https://bridgeup.app). Never wait a
 ## ✨ Features
 
 - 🌉 **15 bridges** across 5 regions monitored in real-time
+- 🚢 **Vessel tracking:** real-time ship positions via AIS
 - ⚡ **Concurrent scraping:** all bridges in ~0.7 seconds
 - 📊 **Predictive intelligence:** reopening estimates based on 300+ closures per bridge
 - 🔄 **Real-time updates:** every 20-30 seconds via WebSocket
@@ -37,10 +38,11 @@ Backend API powering the [Bridge Up iOS app](https://bridgeup.app). Never wait a
 
 | Endpoint | Description |
 |----------|-------------|
-| `wss://api.bridgeup.app/ws` | WebSocket (real-time updates) |
+| `wss://api.bridgeup.app/ws` | WebSocket (real-time bridge updates) |
 | `GET /` | API root with endpoint discovery |
 | `GET /bridges` | All bridges (same data as WebSocket) |
 | `GET /bridges/{id}` | Single bridge by ID |
+| `GET /boats` | Vessel positions in bridge regions |
 | `GET /health` | Health check |
 | `GET /docs` | API documentation |
 
@@ -94,6 +96,53 @@ ws.onmessage = (event) => {
 }
 ```
 
+### Boats Response
+
+```bash
+curl https://api.bridgeup.app/boats
+```
+
+```json
+{
+  "last_updated": "2025-12-25T19:22:28Z",
+  "vessel_count": 20,
+  "status": {
+    "udp": {"udp1": {"active": true, "last_message": "2025-12-25T19:22:28Z"}},
+    "aishub": {"ok": true, "last_poll": "2025-12-25T19:22:28Z", "last_error": null, "failure_count": 0}
+  },
+  "vessels": [
+    {
+      "mmsi": 316001635,
+      "name": "RT HON PAUL J MARTIN",
+      "type_name": "Cargo",
+      "type_category": "cargo",
+      "position": {"lat": 42.92, "lon": -79.24},
+      "heading": 10,
+      "course": 8.9,
+      "speed_knots": 7.2,
+      "destination": "MONTREAL",
+      "dimensions": {"length": 225, "width": 24},
+      "last_seen": "2025-12-25T19:22:28Z",
+      "source": "aishub",
+      "region": "welland"
+    }
+  ]
+}
+```
+
+**Vessel categories:** `cargo`, `tanker`, `tug`, `passenger`, `fishing`, `sailing`, `pleasure`, `other`
+
+**Data sources:**
+- UDP listeners (local AIS receivers) - real-time, ~1s latency
+- AISHub API - polled every 60 seconds
+
+**Configuration:**
+| Variable | Description |
+|----------|-------------|
+| `AISHUB_API_KEY` | AISHub API key (optional, disables polling if not set) |
+
+Send AIS NMEA sentences to the server's IP on port 10110. Supports up to 2 UDP sources (auto-assigned as `udp1`, `udp2`).
+
 ### Statistics Null Handling
 
 Statistics fields return `null` only when no historical data exists for that type:
@@ -132,6 +181,8 @@ St. Lawrence Seaway API → Python Scraper → JSON Storage → FastAPI → WebS
 | `predictions.py` | Prediction calculations |
 | `stats_calculator.py` | Historical statistics |
 | `config.py` | Bridge configuration |
+| `boat_tracker.py` | Real-time vessel tracking (AIS) |
+| `boat_config.py` | Vessel regions and type mappings |
 
 ## 🚀 Quick Start
 

@@ -19,6 +19,8 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
 - `stats_calculator.py` - Historical statistics calculation
 - `shared.py` - Shared state module (avoids circular imports)
 - `config.py` - Bridge configuration
+- `boat_tracker.py` - Real-time vessel tracking (AIS)
+- `boat_config.py` - Vessel regions and type mappings
 
 **Data Storage**: JSON files in `data/` directory
 - `data/bridges.json` - Current bridge state with predictions
@@ -30,6 +32,7 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
 - `GET /` - API root with endpoint discovery
 - `GET /bridges` - HTTP fallback (same data as WebSocket)
 - `GET /bridges/{id}` - Single bridge by ID
+- `GET /boats` - Vessel positions in bridge regions (REST only)
 - `GET /health` - Health check with status info
 - `GET /docs` - Custom Swagger UI with Bridge Up dark theme
 
@@ -93,6 +96,12 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
   - Closed: When bridge will OPEN
   - Closing soon: When bridge will CLOSE
   - Construction: When bridge will OPEN (if end_time known)
+
+### 5. Vessel Tracking
+- Real-time AIS data via UDP (port 10110) and AISHub API
+- Two regions: Welland Canal, Montreal South Shore
+- Filters: MMSI 200M-799M, moved in last 30 min, within bounding box
+- In-memory only, REST endpoint (no WebSocket)
 
 ## JSON Schema
 

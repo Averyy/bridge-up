@@ -7,11 +7,13 @@ services:
     container_name: bridge-up
     ports:
       - "8000:8000"
+      - "10110:10110/udp"
     volumes:
       - ./data:/app/data
     environment:
       - OLD_JSON_ENDPOINT=${OLD_JSON_ENDPOINT}
       - NEW_JSON_ENDPOINT=${NEW_JSON_ENDPOINT}
+      - AISHUB_API_KEY=${AISHUB_API_KEY:-}
     networks:
       - web
     restart: always

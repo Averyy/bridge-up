@@ -289,6 +289,39 @@ docker exec bridge-up python -c "from scraper import daily_statistics_update; da
 ### Key Lesson: Always Test Swagger UI Visually
 CSS changes can break layout in unexpected ways. Always verify with puppeteer screenshots before committing.
 
+## Session: December 25, 2024 - Boat Tracking System
+
+### New Feature: Real-Time Vessel Tracking
+**Purpose**: Track ships approaching bridges to help users understand why bridges are closing.
+
+**Data Sources**:
+- UDP listeners on port 10110 (local AIS receivers, real-time ~1s)
+- AISHub API (polled every 60s, requires API key)
+
+**Key Files Created**:
+- `boat_config.py` - Regions, vessel types, name sanitization
+- `boat_tracker.py` - Complete tracking system (VesselRegistry, UDPProtocol, AISHubPoller)
+
+**Technical Decisions**:
+- REST only (no WebSocket for boats) - lower priority data
+- In-memory only (no persistence) - ephemeral vessel data
+- Auto-assign UDP stations as "udp1", "udp2" (max 2)
+- 30 min moving filter (stationary = probably anchored)
+- 15 min cleanup for stale vessels
+- Instant removal when vessel leaves region bounding box
+- Safety caps: MAX_VESSELS=1000, MAX_BUFFER_SIZE=500, MAX_MULTIPART_BUFFER=100
+
+**Filtering**:
+- MMSI 200M-799M only (valid commercial vessels)
+- Must be within region bounding box (Welland or Montreal)
+- Must have moved in last 30 min
+
+**Files Modified**:
+- `main.py` - Added /boats endpoint with response models
+- `requirements.txt` - Added pyais, httpx
+- `docker-compose.yml` - Added UDP port 10110, AISHUB_API_KEY env var
+- `CLAUDE.md`, `README.md` - Documentation updates
+
 ## Session: December 25, 2024 - Statistics Fixes
 
 ### Bug Fixed: daily_statistics_update() CLI Mode

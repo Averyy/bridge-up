@@ -29,6 +29,9 @@ from shared import (
 from config import BRIDGE_KEYS, BRIDGE_DETAILS
 from loguru import logger
 
+# Boat tracker (initialized in lifespan if enabled)
+boat_tracker = None
+
 
 # === Response Models for API Documentation ===
 
@@ -235,6 +238,93 @@ class BridgesResponse(BaseModel):
     }
 
 
+# === Boat Tracking Response Models ===
+
+class VesselPosition(BaseModel):
+    """Vessel GPS coordinates."""
+    lat: float = Field(description="Latitude")
+    lon: float = Field(description="Longitude")
+
+
+class VesselDimensions(BaseModel):
+    """Vessel physical dimensions."""
+    length: int = Field(description="Length in meters")
+    width: int = Field(description="Width in meters")
+
+
+class Vessel(BaseModel):
+    """Vessel data from AIS."""
+    mmsi: int = Field(description="Maritime Mobile Service Identity")
+    name: Optional[str] = Field(description="Vessel name")
+    type_name: str = Field(description="Vessel type (e.g. Cargo, Tanker - Hazard A)")
+    type_category: str = Field(description="Category for icons/filtering (cargo, tanker, tug, etc.)")
+    position: VesselPosition
+    heading: Optional[int] = Field(description="Heading in degrees")
+    course: Optional[float] = Field(description="Course over ground in degrees")
+    speed_knots: Optional[float] = Field(description="Speed in knots")
+    destination: Optional[str] = Field(description="Reported destination")
+    dimensions: Optional[VesselDimensions] = Field(description="Vessel dimensions")
+    last_seen: str = Field(description="Last update timestamp (ISO 8601)")
+    source: str = Field(description="Data source (udp:sct, aishub)")
+    region: str = Field(description="Region (welland, montreal)")
+
+
+class UDPStationStatus(BaseModel):
+    """UDP station health status."""
+    active: bool = Field(description="Receiving data within last 30s")
+    last_message: Optional[str] = Field(description="Last message timestamp")
+
+
+class AISHubStatus(BaseModel):
+    """AISHub API status."""
+    ok: bool = Field(description="API working without errors")
+    last_poll: Optional[str] = Field(description="Last poll timestamp")
+    last_error: Optional[str] = Field(description="Last error message if any")
+    failure_count: int = Field(description="Consecutive failures")
+
+
+class BoatStatus(BaseModel):
+    """Boat tracking system status."""
+    udp: dict[str, UDPStationStatus] = Field(description="UDP station status")
+    aishub: Optional[AISHubStatus] = Field(description="AISHub API status")
+
+
+class BoatsResponse(BaseModel):
+    """Response for /boats endpoint."""
+    last_updated: str = Field(description="Response timestamp")
+    vessel_count: int = Field(description="Number of moving vessels")
+    status: BoatStatus = Field(description="System status")
+    vessels: list[Vessel] = Field(description="Moving vessels")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "last_updated": "2025-12-25T15:30:00Z",
+                "vessel_count": 3,
+                "status": {
+                    "udp": {"udp1": {"active": True, "last_message": "2025-12-25T15:29:55Z"}},
+                    "aishub": {"ok": True, "last_poll": "2025-12-25T15:29:00Z", "last_error": None, "failure_count": 0}
+                },
+                "vessels": [{
+                    "mmsi": 316013966,
+                    "name": "ALGOMA GUARDIAN",
+                    "type_name": "Cargo",
+                    "type_category": "cargo",
+                    "position": {"lat": 43.139, "lon": -79.192},
+                    "heading": 180,
+                    "course": 182.5,
+                    "speed_knots": 6.2,
+                    "destination": "HAMILTON",
+                    "dimensions": {"length": 225, "width": 23},
+                    "last_seen": "2025-12-25T15:29:55Z",
+                    "source": "udp:udp1",
+                    "region": "welland"
+                }]
+            }
+        }
+    }
+
+
 # Scheduler instance
 scheduler = AsyncIOScheduler(timezone=TIMEZONE)
 
@@ -345,6 +435,8 @@ async def lifespan(app: FastAPI):
     """
     FastAPI lifespan handler for startup and shutdown.
     """
+    global boat_tracker
+
     # Startup
     shared.main_loop = asyncio.get_running_loop()
     initialize_data_files()
@@ -371,10 +463,19 @@ async def lifespan(app: FastAPI):
     # Run initial scrape
     scrape_and_update_wrapper()
 
+    # Start boat tracker (UDP always listens, AISHub if API key exists)
+    from boat_tracker import BoatTracker
+    boat_tracker = BoatTracker()
+    await boat_tracker.start()
+
     yield
 
     # Shutdown
     logger.info("Shutting down...")
+
+    # Stop boat tracker
+    if boat_tracker:
+        await boat_tracker.stop()
 
     # Close all WebSocket connections gracefully
     for client in connected_clients.copy():
@@ -543,6 +644,35 @@ async def custom_swagger_ui():
     )
 
     return HTMLResponse(content=modified_html)
+
+
+@app.get("/boats", response_model=BoatsResponse)
+def get_boats():
+    """
+    Get current vessel positions in monitored regions.
+
+    Returns vessels that have moved within the last 30 minutes.
+    Data sources: local AIS UDP receivers and AISHub API.
+
+    Regions:
+    - welland: Welland Canal (St. Catharines to Port Colborne)
+    - montreal: Montreal South Shore (St. Lawrence Seaway)
+    """
+    from datetime import datetime, timezone
+
+    if boat_tracker:
+        return boat_tracker.get_boats_response()
+
+    # Not running - return empty status
+    return {
+        "last_updated": datetime.now(timezone.utc).isoformat(),
+        "vessel_count": 0,
+        "status": {
+            "udp": {},
+            "aishub": None
+        },
+        "vessels": []
+    }
 
 
 @app.get("/health", response_model=HealthResponse)

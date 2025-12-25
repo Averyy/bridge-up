@@ -18,6 +18,8 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
 - `stats_calculator.py` - Historical statistics calculation
 - `shared.py` - Shared state module (avoids circular imports)
 - `config.py` - Bridge configuration
+- `boat_tracker.py` - Real-time vessel tracking (AIS)
+- `boat_config.py` - Vessel regions, types, configuration
 
 **Data Storage**: JSON files in `data/` directory (no external database)
 - `data/bridges.json` - Current bridge state
@@ -51,10 +53,11 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
 
 ## API Endpoints
 
-- `WS /ws` - WebSocket for real-time updates
+- `WS /ws` - WebSocket for real-time bridge updates
 - `GET /` - API root with endpoint discovery
 - `GET /bridges` - HTTP fallback (same data as WebSocket)
 - `GET /bridges/{id}` - Single bridge by ID
+- `GET /boats` - Vessel positions in bridge regions (REST only)
 - `GET /health` - Health check with status info
 - `GET /docs` - Custom Swagger UI with dark theme (matches bridgeup.app branding)
 
@@ -261,3 +264,59 @@ docker exec bridge-up python -c "from scraper import daily_statistics_update; da
 - **Added**: Concurrent scraping with ThreadPoolExecutor (50x speedup)
 - **Added**: Thread safety for shared state
 - **Added**: Exponential backoff for failed regions
+
+### December 2025: Boat Tracking
+- **Added**: Real-time vessel tracking via AIS
+- **Added**: `boat_tracker.py` - UDP listener + AISHub API poller
+- **Added**: `boat_config.py` - Region bounding boxes, vessel types
+- **Added**: `GET /boats` endpoint (REST only, no WebSocket)
+- **Data sources**: Local UDP dispatchers (real-time) + AISHub API (60s polling)
+- **In-memory only**: No persistence, vessels cleaned up after 15 min
+- **Regions**: Welland Canal + Montreal South Shore
+
+## Boat Tracking System
+
+### Architecture
+```
+AIS Dispatchers (UDP) ─┐
+                       ├─> VesselRegistry ─> GET /boats
+AISHub API (HTTP) ────┘
+```
+
+### Data Sources
+| Source | Latency | Data |
+|--------|---------|------|
+| UDP (local AIS receivers) | ~1 second | Position, speed, heading |
+| AISHub API | 60 seconds | Position + static data (name, type, dimensions) |
+
+### Configuration
+- `AISHUB_API_KEY` - API key for AISHub (optional, disables if not set)
+- UDP listens on port 10110 (hardcoded)
+
+### Vessel Schema
+```json
+{
+  "mmsi": 316001635,
+  "name": "RT HON PAUL J MARTIN",
+  "type_name": "Cargo",
+  "type_category": "cargo",
+  "position": {"lat": 42.92, "lon": -79.24},
+  "heading": 10,
+  "course": 8.9,
+  "speed_knots": 7.2,
+  "destination": "MONTREAL",
+  "dimensions": {"length": 225, "width": 24},
+  "last_seen": "2025-12-25T19:22:28Z",
+  "source": "udp:udp1",
+  "region": "welland"
+}
+```
+
+### Vessel Categories
+`cargo`, `tanker`, `tug`, `passenger`, `fishing`, `sailing`, `pleasure`, `other`
+
+### Filtering
+- Only vessels in monitored regions (welland/montreal bounding boxes) - instantly removed when they leave
+- Only vessels that moved in last 30 minutes (filters out anchored/docked vessels - if stationary 30+ min, likely not actively transiting; vessels waiting for bridges don't wait that long since closures are ~10-20 min)
+- Only ship MMSIs (200M-799M range)
+- Stale vessels removed after 15 minutes (no data received)

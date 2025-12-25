@@ -38,6 +38,8 @@ jobs:
                   key: ${{ secrets.VPS_SSH_KEY }}
                   script: |
                       cd /root/bridge-up
+                      git fetch origin main
+                      git checkout origin/main -- docker-compose.yml
                       docker compose pull
                       docker compose up -d
 

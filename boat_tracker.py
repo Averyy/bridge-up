@@ -778,3 +778,7 @@ class BoatTracker:
             "status": status,
             "vessels": vessels,
         }
+
+    def get_vessel_count(self) -> int:
+        """Get count of currently tracked moving vessels."""
+        return len(self.registry.get_moving_vessels(max_idle_minutes=30))

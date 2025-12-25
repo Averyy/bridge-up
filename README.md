@@ -22,6 +22,8 @@ Backend API powering the [Bridge Up iOS app](https://bridgeup.app). Never wait a
 
 ## 🗺️ Coverage
 
+### Bridges
+
 | Region | Bridges |
 |--------|---------|
 | **St. Catharines** | Highway 20, Glendale Ave, Queenston St, Lakeshore Rd, Carlton St |
@@ -29,6 +31,13 @@ Backend API powering the [Bridge Up iOS app](https://bridgeup.app). Never wait a
 | **Port Colborne** | Clarence St, Main St, Mellanby Ave |
 | **Beauharnois** | Larocque Bridge, St-Louis-de-Gonzague |
 | **Kahnawake** | CP Railway Bridge 7A & 7B |
+
+### Boats
+
+| Region | Bounds |
+|--------|--------|
+| **Welland Canal** | 42.75°N - 43.35°N, 79.35°W - 79.10°W |
+| **Montréal** | 45.15°N - 45.60°N, 74.20°W - 73.35°W |
 
 ## 🔌 API
 
@@ -199,6 +208,7 @@ cd bridge-up-backend
 # Create environment file
 echo "OLD_JSON_ENDPOINT=your_endpoint_here" > .env
 echo "NEW_JSON_ENDPOINT=your_endpoint_here" >> .env
+echo "AISHUB_API_KEY=your_aishub_api_key" >> .env
 
 # Run
 docker compose up -d
@@ -206,16 +216,6 @@ docker compose up -d
 # Check health
 curl https://api.bridgeup.app/health
 ```
-
-### Initial Setup
-
-After the system has collected historical data (typically 24+ hours), run statistics calculation for predictions:
-
-```bash
-docker exec bridge-up python -c "from scraper import daily_statistics_update; daily_statistics_update()"
-```
-
-Statistics recalculate automatically daily at 3 AM.
 
 ### Local Development
 

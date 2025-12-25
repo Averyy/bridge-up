@@ -76,6 +76,7 @@ class HealthResponse(BaseModel):
     last_scrape_had_changes: bool = Field(description="Whether last scrape found changes")
     statistics_last_updated: Optional[str] = Field(description="Last time statistics were calculated")
     bridges_count: int = Field(description="Number of bridges in data")
+    boats_count: int = Field(description="Number of vessels currently tracked")
     websocket_clients: int = Field(description="Connected WebSocket clients")
 
     model_config = {
@@ -87,6 +88,7 @@ class HealthResponse(BaseModel):
                 "last_scrape_had_changes": False,
                 "statistics_last_updated": "2025-12-24T03:00:00-05:00",
                 "bridges_count": 15,
+                "boats_count": 4,
                 "websocket_clients": 3
             }
         }
@@ -700,6 +702,8 @@ def health():
         last_updated = data.get("last_updated")
         bridges_count = len(data.get("bridges", {}))
 
+    boats_count = boat_tracker.get_vessel_count() if boat_tracker else 0
+
     return {
         "status": "ok",
         "last_updated": last_updated,
@@ -707,6 +711,7 @@ def health():
         "last_scrape_had_changes": shared.last_scrape_had_changes,
         "statistics_last_updated": shared.statistics_last_updated.isoformat() if shared.statistics_last_updated else None,
         "bridges_count": bridges_count,
+        "boats_count": boats_count,
         "websocket_clients": len(connected_clients)
     }
 

@@ -198,9 +198,9 @@ class TestScoreForClosed(unittest.TestCase):
         self.assertEqual(score, 0.0)
 
     def test_too_far_zero(self):
-        """Vessel beyond 3km gets zero score."""
+        """Vessel beyond 4km gets zero score."""
         vessel = {"speed_knots": 5.0}
-        score = score_for_closed(vessel, distance_km=4.0)
+        score = score_for_closed(vessel, distance_km=5.0)
         self.assertEqual(score, 0.0)
 
     def test_closer_is_better(self):

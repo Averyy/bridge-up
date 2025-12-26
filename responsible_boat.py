@@ -17,7 +17,7 @@ from config import BRIDGE_DETAILS, BRIDGE_KEYS
 
 # Algorithm constants
 MAX_DISTANCE_CLOSING_SOON = 7.0  # km (allows catching vessels approaching from further out)
-MAX_DISTANCE_CLOSED = 3.0  # km
+MAX_DISTANCE_CLOSED = 4.0  # km (buffer for vessels actively transiting)
 MIN_SCORE_CLOSING_SOON = 0.3  # Same as Closed - vessel heading toward bridge is confident enough
 MIN_SCORE_CLOSED = 0.3
 BASE_SCORE_CAP = 3.0  # Prevents very close vessels from dominating
@@ -165,20 +165,24 @@ def get_vessel_direction(vessel: dict, prefer_cog: bool) -> Optional[float]:
     Returns:
         Direction in degrees, or None if not available
     """
+    # AIS special values for "not available"
+    HEADING_NOT_AVAILABLE = 511
+    COG_NOT_AVAILABLE = 360
+
     if prefer_cog:
         # Moving: COG is actual travel direction
         cog = vessel.get("course")
-        if cog is not None:
+        if cog is not None and cog != COG_NOT_AVAILABLE:
             return float(cog)
         # Fallback to heading
         heading = vessel.get("heading")
-        if heading is not None:
+        if heading is not None and heading != HEADING_NOT_AVAILABLE:
             return float(heading)
         return None
     else:
         # Stationary: heading is bow direction (COG meaningless at 0 speed)
         heading = vessel.get("heading")
-        if heading is not None:
+        if heading is not None and heading != HEADING_NOT_AVAILABLE:
             return float(heading)
         return None
 
@@ -198,10 +202,10 @@ def is_heading_toward_bridge(vessel: dict, bridge_coords: tuple[float, float],
         False if heading away,
         None if direction unknown
     """
-    # Get vessel position
-    position = vessel.get("position", {})
-    v_lat = position.get("lat") if isinstance(position, dict) else vessel.get("lat")
-    v_lon = position.get("lon") if isinstance(position, dict) else vessel.get("lon")
+    # Get vessel position (handle both nested and flat formats)
+    position = vessel.get("position") or {}
+    v_lat = position.get("lat") if position else vessel.get("lat")
+    v_lon = position.get("lon") if position else vessel.get("lon")
 
     if v_lat is None or v_lon is None:
         return None
@@ -334,10 +338,10 @@ def find_responsible_vessel(bridge_id: str, bridge_status: str,
     best_score = 0.0
 
     for vessel in regional_vessels:
-        # Get vessel position
-        position = vessel.get("position", {})
-        v_lat = position.get("lat") if isinstance(position, dict) else vessel.get("lat")
-        v_lon = position.get("lon") if isinstance(position, dict) else vessel.get("lon")
+        # Get vessel position (handle both nested and flat formats)
+        position = vessel.get("position") or {}
+        v_lat = position.get("lat") if position else vessel.get("lat")
+        v_lon = position.get("lon") if position else vessel.get("lon")
 
         if v_lat is None or v_lon is None:
             continue

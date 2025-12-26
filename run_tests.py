@@ -49,7 +49,8 @@ def main():
         ("tests/test_logging.py", "Logging Tests (output format)"),
         ("tests/test_predictions.py", "Prediction Tests (iOS logic moved to backend)"),
         ("tests/test_health.py", "Health Tests (monitoring status logic)"),
-        ("tests/test_boat_tracker.py", "Boat Tracker Tests (vessel filtering logic)")
+        ("tests/test_boat_tracker.py", "Boat Tracker Tests (vessel filtering logic)"),
+        ("tests/test_responsible_boat.py", "Responsible Boat Tests (closure attribution)")
     ]
     
     passed = 0

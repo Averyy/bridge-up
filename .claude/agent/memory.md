@@ -359,3 +359,62 @@ CSS changes can break layout in unexpected ways. Always verify with puppeteer sc
 - `README.md` - Updated health endpoint description, null handling
 - `.claude/shared/project-context.md` - Updated null handling docs
 - `.claude/agent/memory.md` - This session
+
+## Session: December 26, 2025 - Responsible Vessel Attribution
+
+### New Feature: Closure Attribution
+**Purpose**: Identify which vessel is most likely responsible for a bridge closure, enabling UI to highlight/link the responsible boat.
+
+**Algorithm Design**:
+- Two different algorithms for different statuses:
+  - "Closing soon": Vessel approaching OR waiting at bridge (stationary, pointed at bridge)
+  - "Closed/Closing": Vessel actively passing through (must be moving)
+- Score-based selection with minimum thresholds to reject weak candidates
+- Base score: `min(1/(distance + 0.1), 3.0)` capped to prevent very close vessels from dominating
+
+**Key Constants** (tuned based on live testing):
+```python
+MAX_DISTANCE_CLOSING_SOON = 7.0  # km (catches approaching vessels further out)
+MAX_DISTANCE_CLOSED = 3.0        # km
+MIN_SCORE_CLOSING_SOON = 0.3     # Same as Closed
+MIN_SCORE_CLOSED = 0.3
+BASE_SCORE_CAP = 3.0
+MOVING_SPEED_THRESHOLD = 0.5     # knots
+HEADING_TOLERANCE = 60           # degrees
+```
+
+**Multipliers for "Closing soon"**:
+| Vessel State | Heading | Multiplier |
+|--------------|---------|------------|
+| Moving (≥0.5 kt) | Toward bridge | 2.0 |
+| Moving | Unknown | 1.0 |
+| Moving | Away | 0.3 |
+| Stationary | Toward bridge | 2.5 |
+| Stationary | Unknown | 0.1 |
+| Stationary | Away | 0.05 |
+
+**Direction Logic**:
+- Moving vessels: Use COG (Course Over Ground) - actual travel direction
+- Stationary vessels: Use heading (bow direction) - pointed at bridge = waiting
+
+**Files Created**:
+- `responsible_boat.py` - Complete algorithm (~390 lines)
+- `tests/test_responsible_boat.py` - 42 unit tests
+
+**Files Modified**:
+- `main.py` - Added `responsible_vessel_mmsi` to LiveBridgeData model, injected into /bridges, /bridges/{id}, WebSocket
+- `run_tests.py` - Added responsible boat tests to suite
+
+**Test Results**: All 12 test files pass (42 responsible boat tests + existing tests)
+
+**API Changes**:
+- `live.responsible_vessel_mmsi` field added to bridge data
+- Returns MMSI (int) of responsible vessel, or null if no confident match
+- Only populated for statuses: "Closing soon", "Closed", "Closing"
+
+**Documentation Updated**:
+- `README.md` - Key Files table, response format example
+- `CLAUDE.md` - Key Components, JSON Schema, test count (9→12), new section for algorithm
+- `.claude/agent/instructions.md` - Key Components
+- `.claude/agent/memory.md` - This session
+- `.claude/shared/project-context.md` - Key Components, test count, JSON schema

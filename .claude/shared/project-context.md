@@ -21,6 +21,7 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
 - `config.py` - Bridge configuration
 - `boat_tracker.py` - Real-time vessel tracking (AIS)
 - `boat_config.py` - Vessel regions and type mappings
+- `responsible_boat.py` - Closure attribution (which vessel caused it)
 
 **Data Storage**: JSON files in `data/` directory
 - `data/bridges.json` - Current bridge state with predictions
@@ -66,7 +67,7 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
 - **Data Storage**: JSON files with atomic writes
 - **Scheduling**: APScheduler with `max_instances=3`, `coalesce=True`
 - **Deployment**: Docker with Caddy reverse proxy
-- **Testing**: 9 test files covering core logic and edge cases
+- **Testing**: 12 test files covering core logic and edge cases
 - **Monitoring**: Loguru for structured logging, `/health` endpoint
 
 ## Core Functionality
@@ -138,7 +139,8 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
             "longer": false,
             "expected_duration_minutes": 15
           }
-        ]
+        ],
+        "responsible_vessel_mmsi": 316013966
       }
     }
   }

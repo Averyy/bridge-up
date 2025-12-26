@@ -27,6 +27,7 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
 - `config.py` - Bridge configuration
 - `boat_tracker.py` - Real-time vessel tracking (AIS via UDP + AISHub API)
 - `boat_config.py` - Vessel regions and type mappings
+- `responsible_boat.py` - Closure attribution (which vessel caused it)
 
 ## Agent-Specific Responsibilities
 

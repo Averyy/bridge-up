@@ -167,6 +167,7 @@ class LiveBridgeData(BaseModel):
     last_updated: str = Field(description="When status was last updated (ISO 8601)")
     predicted: Optional[PredictedTime] = Field(default=None, description="Predicted next status change")
     upcoming_closures: list[UpcomingClosure] = Field(default=[], description="Scheduled closures")
+    responsible_vessel_mmsi: Optional[int] = Field(default=None, description="MMSI of vessel likely causing closure (for Closing soon/Closed/Closing status)")
 
 
 class BridgeData(BaseModel):
@@ -202,7 +203,8 @@ class BridgeData(BaseModel):
                         "time": "2025-12-24T12:25:00-05:00",
                         "longer": False,
                         "expected_duration_minutes": 15
-                    }]
+                    }],
+                    "responsible_vessel_mmsi": 316013966
                 }
             }
         }
@@ -236,7 +238,8 @@ class BridgesResponse(BaseModel):
                             "status": "Open",
                             "last_updated": "2025-12-24T12:30:00-05:00",
                             "predicted": None,
-                            "upcoming_closures": []
+                            "upcoming_closures": [],
+                            "responsible_vessel_mmsi": None
                         }
                     }
                 }
@@ -542,10 +545,12 @@ async def websocket_endpoint(websocket: WebSocket):
     """
     WebSocket endpoint for real-time bridge updates.
 
-    - On connect: sends full state immediately
+    - On connect: sends full state immediately (with responsible_vessel_mmsi)
     - On change: server broadcasts full state to all clients
     - Protocol-level ping/pong handled by uvicorn
     """
+    from responsible_boat import find_responsible_vessel
+
     await websocket.accept()
     connected_clients.append(websocket)
     logger.info(f"WebSocket client connected ({len(connected_clients)} total)")
@@ -554,7 +559,20 @@ async def websocket_endpoint(websocket: WebSocket):
         # Send current state immediately on connect
         if os.path.exists("data/bridges.json"):
             with open("data/bridges.json") as f:
-                await websocket.send_text(f.read())
+                data = json.load(f)
+
+            # Inject responsible vessels
+            vessels = []
+            if boat_tracker:
+                vessels = boat_tracker.registry.get_moving_vessels(max_idle_minutes=30)
+
+            for bridge_id, bridge_data in data.get("bridges", {}).items():
+                live = bridge_data.get("live", {})
+                status = live.get("status", "Unknown")
+                responsible_mmsi = find_responsible_vessel(bridge_id, status, vessels)
+                live["responsible_vessel_mmsi"] = responsible_mmsi
+
+            await websocket.send_text(json.dumps(data, default=str))
 
         # Keep connection alive, handle incoming messages
         while True:
@@ -575,8 +593,27 @@ async def broadcast(data: dict):
     Broadcast data to all connected WebSocket clients.
 
     Called when bridge status changes.
+    Injects responsible_vessel_mmsi for each bridge before sending.
     """
-    message = json.dumps(data, default=str)
+    from responsible_boat import find_responsible_vessel
+
+    # Deep copy to avoid modifying original
+    broadcast_data = copy.deepcopy(data)
+
+    # Get vessels for responsible boat calculation
+    vessels = []
+    if boat_tracker:
+        vessels = boat_tracker.registry.get_moving_vessels(max_idle_minutes=30)
+
+    # Calculate responsible vessels for each bridge
+    bridges = broadcast_data.get("bridges", {})
+    for bridge_id, bridge_data in bridges.items():
+        live = bridge_data.get("live", {})
+        status = live.get("status", "Unknown")
+        responsible_mmsi = find_responsible_vessel(bridge_id, status, vessels)
+        live["responsible_vessel_mmsi"] = responsible_mmsi
+
+    message = json.dumps(broadcast_data, default=str)
     disconnected = []
 
     for client in connected_clients.copy():
@@ -608,9 +645,27 @@ def get_bridges():
 
     Returns identical structure to WebSocket messages.
     Served from memory cache for faster responses (same source as WebSocket).
+
+    Includes `responsible_vessel_mmsi` for bridges with closure status,
+    identifying the vessel most likely causing the closure.
     """
+    from responsible_boat import find_responsible_vessel
+
     with last_known_state_lock:
         bridges = copy.deepcopy(last_known_state)
+
+    # Get vessels for responsible boat calculation
+    vessels = []
+    if boat_tracker:
+        vessels = boat_tracker.registry.get_moving_vessels(max_idle_minutes=30)
+
+    # Calculate responsible vessels for each bridge
+    for bridge_id, bridge_data in bridges.items():
+        live = bridge_data.get("live", {})
+        status = live.get("status", "Unknown")
+
+        responsible_mmsi = find_responsible_vessel(bridge_id, status, vessels)
+        live["responsible_vessel_mmsi"] = responsible_mmsi
 
     return {
         "last_updated": shared.last_updated_time.isoformat() if shared.last_updated_time else None,
@@ -626,11 +681,27 @@ def get_bridge(bridge_id: str):
 
     Useful for deep links and focused queries.
     Served from memory cache for faster responses.
+
+    Includes `responsible_vessel_mmsi` for bridges with closure status.
     """
+    from responsible_boat import find_responsible_vessel
+
     with last_known_state_lock:
         bridge = last_known_state.get(bridge_id)
         if bridge:
-            return copy.deepcopy(bridge)
+            bridge = copy.deepcopy(bridge)
+
+            # Calculate responsible vessel
+            vessels = []
+            if boat_tracker:
+                vessels = boat_tracker.registry.get_moving_vessels(max_idle_minutes=30)
+
+            live = bridge.get("live", {})
+            status = live.get("status", "Unknown")
+            responsible_mmsi = find_responsible_vessel(bridge_id, status, vessels)
+            live["responsible_vessel_mmsi"] = responsible_mmsi
+
+            return bridge
     raise HTTPException(status_code=404, detail="Bridge not found")
 
 

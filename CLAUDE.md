@@ -5,6 +5,11 @@ This is the Python backend for Bridge Up - a bridge monitoring system that scrap
 
 **Key Context**: This backend is the **authoritative data source** for all clients (iOS, web). It scrapes, processes, calculates predictions, and serves all bridge status information.
 
+**Agent Documentation**: When working on this project, also review:
+- `.claude/agent/instructions.md` - Agent-specific responsibilities and workflow
+- `.claude/agent/memory.md` - Session history and lessons learned
+- `.claude/shared/project-context.md` - Detailed project architecture
+
 ## Architecture (Post-Migration December 2024)
 
 ```
@@ -20,6 +25,7 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
 - `config.py` - Bridge configuration
 - `boat_tracker.py` - Real-time vessel tracking (AIS)
 - `boat_config.py` - Vessel regions, types, configuration
+- `responsible_boat.py` - Closure attribution algorithm
 
 **Data Storage**: JSON files in `data/` directory (no external database)
 - `data/bridges.json` - Current bridge state
@@ -107,7 +113,8 @@ Custom-styled Swagger UI with Bridge Up dark theme:
         "status": "Closed",
         "last_updated": "2025-12-20T15:20:00-05:00",
         "predicted": {"lower": "2025-12-20T15:28:00-05:00", "upper": "2025-12-20T15:36:00-05:00"},
-        "upcoming_closures": [...]
+        "upcoming_closures": [...],
+        "responsible_vessel_mmsi": 316001635
       }
     }
   }
@@ -197,10 +204,11 @@ python scraper.py         # Test scraper standalone
 python run_tests.py
 ```
 
-All 9 test files must pass (100%):
+All 12 test files must pass (100%):
 - Parser tests, Statistics tests, Prediction tests
 - Status edge cases, Configuration, Thread safety
 - Backoff logic, Network backoff, Logging
+- Health tests, Boat tracker tests, Responsible boat tests
 
 ## Error Handling Standards
 
@@ -274,6 +282,13 @@ docker exec bridge-up python -c "from scraper import daily_statistics_update; da
 - **In-memory only**: No persistence, vessels cleaned up after 15 min
 - **Regions**: Welland Canal + Montreal South Shore
 
+### December 2025: Responsible Vessel Attribution
+- **Added**: `responsible_boat.py` - Identifies which vessel caused a closure
+- **Added**: `responsible_vessel_mmsi` field to bridge live data (REST + WebSocket)
+- **Algorithm**: Score-based with distance, heading, and speed factors
+- **Two modes**: "Closing soon" (approaching/waiting) vs "Closed/Closing" (actively transiting)
+- **Added**: 42 unit tests for responsible boat logic
+
 ## Boat Tracking System
 
 ### Architecture
@@ -320,3 +335,56 @@ AISHub API (HTTP) ────┘
 - Only vessels that moved in last 30 minutes (filters out anchored/docked vessels - if stationary 30+ min, likely not actively transiting; vessels waiting for bridges don't wait that long since closures are ~10-20 min)
 - Only ship MMSIs (200M-799M range)
 - Stale vessels removed after 15 minutes (no data received)
+
+## Responsible Vessel Attribution (responsible_boat.py)
+
+Identifies which vessel is most likely responsible for a bridge closure based on position, heading, speed, and proximity.
+
+### Algorithm Overview
+
+Two different algorithms based on bridge status:
+
+| Status | Algorithm | Distance | Threshold | Notes |
+|--------|-----------|----------|-----------|-------|
+| Closing soon | `score_for_closing_soon()` | 7 km | 0.3 | Approaching OR waiting at bridge |
+| Closed/Closing | `score_for_closed()` | 3 km | 0.3 | Actively passing through (must be moving) |
+
+### Score Calculation
+
+**Base score** (capped at 3.0 to prevent very close vessels from dominating):
+```python
+base_score = min(1.0 / (distance_km + 0.1), 3.0)
+```
+
+**Multipliers for "Closing soon"**:
+| Vessel State | Heading | Multiplier |
+|--------------|---------|------------|
+| Moving (≥0.5 kt) | Toward bridge | 2.0 |
+| Moving | Unknown | 1.0 |
+| Moving | Away | 0.3 |
+| Stationary | Toward bridge | 2.5 |
+| Stationary | Unknown | 0.1 |
+| Stationary | Away | 0.05 |
+
+**"Closed/Closing"**: No multipliers, but vessel must be moving (speed ≥ 0.5 knots)
+
+### Key Constants
+```python
+MAX_DISTANCE_CLOSING_SOON = 7.0  # km (catches approaching vessels further out)
+MAX_DISTANCE_CLOSED = 3.0        # km
+MIN_SCORE_CLOSING_SOON = 0.3     # Same as Closed
+MIN_SCORE_CLOSED = 0.3
+BASE_SCORE_CAP = 3.0
+MOVING_SPEED_THRESHOLD = 0.5     # knots
+HEADING_TOLERANCE = 60           # degrees
+```
+
+### Direction Logic
+- **Moving vessels**: Use COG (Course Over Ground) - actual travel direction
+- **Stationary vessels**: Use heading (bow direction) - determines if waiting vs docked
+
+### API Integration
+- `responsible_vessel_mmsi` field added to `live` section of bridge data
+- Calculated on-demand for `/bridges` and `/bridges/{id}` endpoints
+- Injected into WebSocket broadcasts and initial connection
+- Returns `null` for non-closure statuses or when no confident match

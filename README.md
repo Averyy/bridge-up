@@ -98,7 +98,8 @@ ws.onmessage = (event) => {
         "status": "Open",
         "last_updated": "2025-12-24T12:30:00-05:00",
         "predicted": null,
-        "upcoming_closures": []
+        "upcoming_closures": [],
+        "responsible_vessel_mmsi": null
       }
     }
   }
@@ -192,6 +193,7 @@ St. Lawrence Seaway API → Python Scraper → JSON Storage → FastAPI → WebS
 | `config.py` | Bridge configuration |
 | `boat_tracker.py` | Real-time vessel tracking (AIS) |
 | `boat_config.py` | Vessel regions and type mappings |
+| `responsible_boat.py` | Closure attribution (which vessel caused it) |
 
 ## 🚀 Quick Start
 

@@ -9,19 +9,19 @@ Contains:
 """
 from typing import Optional
 
-# Region bounding boxes with ~15km buffer to track approaching vessels
+# Region bounding boxes to track approaching vessels
 BOAT_REGIONS = {
     "welland": {
         "name": "Welland Canal",
-        # Extended coverage: Lake Ontario entrance (north) to Lake Erie (south)
+        # ~20km buffer: Lake Ontario entrance (north) to Lake Erie (south)
         # All 8 bridges: Lakeshore, Carlton, Queenston, Glendale, Hwy20, Main, Mellanby, Clarence
-        "bounds": {"lat_min": 42.75, "lat_max": 43.35, "lon_min": -79.35, "lon_max": -79.10}
+        "bounds": {"lat_min": 42.70, "lat_max": 43.40, "lon_min": -79.40, "lon_max": -79.05}
     },
     "montreal": {
         "name": "Montreal South Shore",
-        # Extended coverage: St. Lawrence Seaway approaches
+        # ~25km buffer: St. Lawrence Seaway approaches
         # All 7 bridges: Victoria x2, Sainte-Catherine, CP Railway 7A/7B, St-Louis, Larocque
-        "bounds": {"lat_min": 45.15, "lat_max": 45.60, "lon_min": -74.20, "lon_max": -73.35}
+        "bounds": {"lat_min": 45.05, "lat_max": 45.70, "lon_min": -74.35, "lon_max": -73.20}
     }
 }
 

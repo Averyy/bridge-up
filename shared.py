@@ -21,6 +21,9 @@ TIMEZONE = pytz.timezone('America/Toronto')
 last_scrape_time: Optional[datetime] = None
 last_scrape_had_changes: bool = False
 
+# Last time bridge data actually changed (for /bridges endpoint and health check)
+last_updated_time: Optional[datetime] = None
+
 # Last statistics calculation timestamp
 statistics_last_updated: Optional[datetime] = None
 

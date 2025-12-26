@@ -46,6 +46,13 @@ logger.add(
     colorize=False  # Disable colors for Docker
 )
 
+# HTTP session for connection pooling (reuses TCP connections across requests)
+# Thread-safe: requests.Session uses urllib3's connection pooling internally
+scraper_session = requests.Session()
+scraper_session.headers.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+})
+
 
 def atomic_write_json(path: str, data: Any) -> None:
     """
@@ -122,6 +129,8 @@ def fetch_json_endpoint(url: str, timeout: int = 10, retries: int = 3) -> Option
     """
     Fetch JSON data from endpoint with retry logic.
 
+    Uses module-level scraper_session for HTTP keep-alive connection pooling.
+
     Args:
         url: The full URL to fetch
         timeout: Request timeout in seconds
@@ -132,9 +141,7 @@ def fetch_json_endpoint(url: str, timeout: int = 10, retries: int = 3) -> Option
     """
     for attempt in range(retries):
         try:
-            response = requests.get(url, timeout=timeout, headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            })
+            response = scraper_session.get(url, timeout=timeout)
             response.raise_for_status()
             return response.json()
         except (requests.RequestException, requests.Timeout, ValueError) as e:
@@ -660,6 +667,7 @@ def update_json_and_broadcast(bridges: List[Dict[str, Any]], region: str, shortf
     # Write to JSON file and broadcast if changes made
     if updates_made:
         shared.last_scrape_had_changes = True
+        shared.last_updated_time = current_time
         with bridges_file_lock:
             # Read current file
             if os.path.exists("data/bridges.json"):
@@ -706,51 +714,58 @@ def daily_statistics_update() -> None:
         return
 
     updated_count = 0
+    failed_count = 0
     for bridge_id in bridge_ids:
-        history_path = f"data/history/{bridge_id}.json"
+        try:
+            history_path = f"data/history/{bridge_id}.json"
 
-        # Read and potentially write history file (protected by lock)
-        with history_file_lock:
-            # Read history file
-            if os.path.exists(history_path):
-                try:
-                    with open(history_path) as f:
-                        history = json.load(f)
-                except (json.JSONDecodeError, IOError):
+            # Read and potentially write history file (protected by lock)
+            with history_file_lock:
+                # Read history file
+                if os.path.exists(history_path):
+                    try:
+                        with open(history_path) as f:
+                            history = json.load(f)
+                    except (json.JSONDecodeError, IOError):
+                        history = []
+                else:
                     history = []
-            else:
-                history = []
 
-            if not history:
-                continue
+                if not history:
+                    continue
 
-            # Convert to format expected by stats_calculator
-            history_data = []
-            for entry in history:
-                history_data.append({
-                    'id': entry.get('id', ''),
-                    'status': entry.get('status', ''),
-                    'duration': entry.get('duration'),
-                    'start_time': parse_datetime(entry.get('start_time')) or datetime.min
-                })
+                # Convert to format expected by stats_calculator
+                history_data = []
+                for entry in history:
+                    history_data.append({
+                        'id': entry.get('id', ''),
+                        'status': entry.get('status', ''),
+                        'duration': entry.get('duration'),
+                        'start_time': parse_datetime(entry.get('start_time')) or datetime.min
+                    })
 
-            # Calculate statistics
-            stats, entries_to_delete = calculate_bridge_statistics(history_data)
+                # Calculate statistics
+                stats, entries_to_delete = calculate_bridge_statistics(history_data)
 
-            # Remove old entries from history file
-            if entries_to_delete:
-                history = [e for e in history if e.get('id') not in entries_to_delete]
-                atomic_write_json(history_path, history)
+                # Remove old entries from history file
+                if entries_to_delete:
+                    history = [e for e in history if e.get('id') not in entries_to_delete]
+                    atomic_write_json(history_path, history)
 
-        # Update statistics directly in the data dict (works for both CLI and app)
-        if bridge_id in data["bridges"]:
-            data["bridges"][bridge_id]["static"]["statistics"] = stats
-            updated_count += 1
+            # Update statistics directly in the data dict (works for both CLI and app)
+            if bridge_id in data["bridges"]:
+                data["bridges"][bridge_id]["static"]["statistics"] = stats
+                updated_count += 1
 
-            # Also update in-memory state if app is running
-            with last_known_state_lock:
-                if bridge_id in last_known_state:
-                    last_known_state[bridge_id]['static']['statistics'] = stats
+                # Also update in-memory state if app is running
+                with last_known_state_lock:
+                    if bridge_id in last_known_state:
+                        last_known_state[bridge_id]['static']['statistics'] = stats
+
+        except Exception as e:
+            logger.error(f"Stats calculation failed for {bridge_id}: {e}")
+            failed_count += 1
+            continue
 
     # Write updated data to bridges.json
     with bridges_file_lock:
@@ -760,7 +775,10 @@ def daily_statistics_update() -> None:
     # Track when statistics were last calculated
     shared.statistics_last_updated = datetime.now(TIMEZONE)
 
-    logger.info(f"Daily statistics update complete: {updated_count} bridges updated")
+    if failed_count > 0:
+        logger.warning(f"Daily statistics update complete: {updated_count}/{len(bridge_ids)} bridges updated, {failed_count} failed")
+    else:
+        logger.info(f"Daily statistics update complete: {updated_count}/{len(bridge_ids)} bridges updated")
 
 
 def process_single_region(bridge_key_info_pair: Tuple[str, Dict[str, str]]) -> Tuple[bool, int]:

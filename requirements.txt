@@ -1,25 +1,26 @@
 # requirements.txt
 # Bridge Up Backend - FastAPI + WebSocket
+# Versions pinned for reproducible builds
 
 # Web framework
-fastapi
-uvicorn[standard]
+fastapi==0.127.0
+uvicorn[standard]==0.40.0
 
 # HTTP client
-requests
-httpx
+requests==2.32.5
+httpx==0.28.1
 
 # Configuration
-python-dotenv
+python-dotenv==1.2.1
 
 # Timezone handling
-pytz
+pytz==2025.2
 
 # Background scheduling
-apscheduler
+apscheduler==3.11.2
 
 # Logging
-loguru
+loguru==0.7.3
 
 # AIS decoding (boat tracking)
-pyais
+pyais==2.14.0

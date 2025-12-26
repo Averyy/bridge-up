@@ -47,7 +47,9 @@ def main():
         ("tests/test_backoff.py", "Backoff Tests (exponential retry logic)"),
         ("tests/test_network_backoff.py", "Network Backoff Tests (failure handling)"),
         ("tests/test_logging.py", "Logging Tests (output format)"),
-        ("tests/test_predictions.py", "Prediction Tests (iOS logic moved to backend)")
+        ("tests/test_predictions.py", "Prediction Tests (iOS logic moved to backend)"),
+        ("tests/test_health.py", "Health Tests (monitoring status logic)"),
+        ("tests/test_boat_tracker.py", "Boat Tracker Tests (vessel filtering logic)")
     ]
     
     passed = 0

@@ -16,14 +16,15 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
+import copy
 import json
 import asyncio
 import os
 
 import shared
 from shared import (
-    TIMEZONE, last_known_state, connected_clients,
+    TIMEZONE, last_known_state, last_known_state_lock, connected_clients,
     bridges_file_lock
 )
 from config import BRIDGE_KEYS, BRIDGE_DETAILS
@@ -70,7 +71,8 @@ class RootResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     """Health check response."""
-    status: str = Field(description="API status", examples=["ok"])
+    status: str = Field(description="API status: ok, warning, or error", examples=["ok"])
+    status_message: str = Field(description="Human-readable status explanation")
     last_updated: Optional[str] = Field(description="Last time bridge data changed")
     last_scrape: Optional[str] = Field(description="Last scrape attempt timestamp")
     last_scrape_had_changes: bool = Field(description="Whether last scrape found changes")
@@ -83,6 +85,7 @@ class HealthResponse(BaseModel):
         "json_schema_extra": {
             "example": {
                 "status": "ok",
+                "status_message": "All systems operational",
                 "last_updated": "2025-12-24T12:25:00-05:00",
                 "last_scrape": "2025-12-24T12:30:05-05:00",
                 "last_scrape_had_changes": False,
@@ -400,6 +403,14 @@ def initialize_data_files():
             for bridge_id, bridge_data in data.get("bridges", {}).items():
                 last_known_state[bridge_id] = bridge_data
 
+        # Load last_updated_time for memory-based /bridges endpoint
+        last_updated_str = data.get("last_updated")
+        if last_updated_str:
+            try:
+                shared.last_updated_time = datetime.fromisoformat(last_updated_str)
+            except ValueError:
+                shared.last_updated_time = None
+
         # Ensure available_bridges is present (migration from old format)
         if "available_bridges" not in data:
             data["available_bridges"] = AVAILABLE_BRIDGES
@@ -587,12 +598,16 @@ def get_bridges():
     Get current state of all bridges.
 
     Returns identical structure to WebSocket messages.
-    Useful as HTTP fallback if WebSocket fails.
+    Served from memory cache for faster responses (same source as WebSocket).
     """
-    if os.path.exists("data/bridges.json"):
-        with open("data/bridges.json") as f:
-            return json.load(f)
-    return {"last_updated": None, "available_bridges": AVAILABLE_BRIDGES, "bridges": {}}
+    with last_known_state_lock:
+        bridges = copy.deepcopy(last_known_state)
+
+    return {
+        "last_updated": shared.last_updated_time.isoformat() if shared.last_updated_time else None,
+        "available_bridges": AVAILABLE_BRIDGES,
+        "bridges": bridges
+    }
 
 
 @app.get("/bridges/{bridge_id}", response_model=BridgeData)
@@ -601,13 +616,12 @@ def get_bridge(bridge_id: str):
     Get a single bridge by ID.
 
     Useful for deep links and focused queries.
+    Served from memory cache for faster responses.
     """
-    if os.path.exists("data/bridges.json"):
-        with open("data/bridges.json") as f:
-            data = json.load(f)
-        bridge = data.get("bridges", {}).get(bridge_id)
+    with last_known_state_lock:
+        bridge = last_known_state.get(bridge_id)
         if bridge:
-            return bridge
+            return copy.deepcopy(bridge)
     raise HTTPException(status_code=404, detail="Bridge not found")
 
 
@@ -685,28 +699,50 @@ def health():
     """
     Health check endpoint for monitoring.
 
+    Status levels:
+        - "ok": All systems operational
+        - "warning": Unusual inactivity (no bridge changes in 24+ hours)
+        - "error": Scraper stalled (no scrape in 5+ minutes)
+
     Returns:
-        - status: "ok" if healthy
+        - status: ok, warning, or error
+        - status_message: Human-readable explanation
         - last_updated: timestamp of last data update
         - last_scrape: timestamp of last scrape attempt
         - statistics_last_updated: timestamp of last statistics calculation
         - bridges_count: number of bridges in data
         - websocket_clients: number of connected clients
     """
-    last_updated = None
-    bridges_count = 0
+    now = datetime.now(TIMEZONE)
+    status = "ok"
+    status_message = "All systems operational"
 
-    if os.path.exists("data/bridges.json"):
-        with open("data/bridges.json") as f:
-            data = json.load(f)
-        last_updated = data.get("last_updated")
-        bridges_count = len(data.get("bridges", {}))
+    # Get bridge count from memory
+    with last_known_state_lock:
+        bridges_count = len(last_known_state)
+
+    # Check scraper health (runs every 20-30s, so 5 min = definitely stuck)
+    if shared.last_scrape_time:
+        scrape_age = now - shared.last_scrape_time
+        if scrape_age > timedelta(minutes=5):
+            status = "error"
+            minutes_ago = int(scrape_age.total_seconds() / 60)
+            status_message = f"Scraper has not run in {minutes_ago} minutes, may be stuck or crashed"
+
+    # Check data freshness (24h without any bridge change is unusual)
+    if shared.last_updated_time and status == "ok":
+        data_age = now - shared.last_updated_time
+        if data_age > timedelta(hours=24):
+            status = "warning"
+            hours_ago = int(data_age.total_seconds() / 3600)
+            status_message = f"No bridge status changes in {hours_ago} hours, unusual inactivity"
 
     boats_count = boat_tracker.get_vessel_count() if boat_tracker else 0
 
     return {
-        "status": "ok",
-        "last_updated": last_updated,
+        "status": status,
+        "status_message": status_message,
+        "last_updated": shared.last_updated_time.isoformat() if shared.last_updated_time else None,
         "last_scrape": shared.last_scrape_time.isoformat() if shared.last_scrape_time else None,
         "last_scrape_had_changes": shared.last_scrape_had_changes,
         "statistics_last_updated": shared.statistics_last_updated.isoformat() if shared.statistics_last_updated else None,

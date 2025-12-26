@@ -357,26 +357,32 @@ base_score = min(1.0 / (distance_km + 0.1), 3.0)
 ```
 
 **Multipliers for "Closing soon"**:
-| Vessel State | Heading | Multiplier |
-|--------------|---------|------------|
-| Moving (≥0.5 kt) | Toward bridge | 2.0 |
-| Moving | Unknown | 1.0 |
-| Moving | Away | 0.3 |
-| Stationary | Toward bridge | 2.5 |
-| Stationary | Unknown | 0.1 |
-| Stationary | Away | 0.05 |
+| Vessel State | Distance | Heading | Multiplier |
+|--------------|----------|---------|------------|
+| Moving (≥0.5 kt) | Any | Toward bridge | 2.0 |
+| Moving | Any | Unknown | 1.0 |
+| Moving | Any | Away | 0.3 |
+| Stationary | ≤2 km | Toward bridge | 2.5 |
+| Stationary | ≤2 km | Unknown | 0.1 |
+| Stationary | ≤2 km | Away | 0.05 |
+| Stationary | >2 km | Toward bridge | 0.3 |
+| Stationary | >2 km | Unknown | 0.05 |
+| Stationary | >2 km | Away | 0.02 |
+
+**Key insight**: Stationary vessels only get high multipliers if within 2 km (actually waiting at bridge). Distant stationary vessels are likely docked, not waiting.
 
 **"Closed/Closing"**: No multipliers, but vessel must be moving (speed ≥ 0.5 knots)
 
 ### Key Constants
 ```python
 MAX_DISTANCE_CLOSING_SOON = 7.0  # km (catches approaching vessels further out)
-MAX_DISTANCE_CLOSED = 3.0        # km
-MIN_SCORE_CLOSING_SOON = 0.3     # Same as Closed
+MAX_DISTANCE_CLOSED = 4.0        # km
+MIN_SCORE_CLOSING_SOON = 0.25    # Lower to catch approaching vessels further out
 MIN_SCORE_CLOSED = 0.3
 BASE_SCORE_CAP = 3.0
 MOVING_SPEED_THRESHOLD = 0.5     # knots
 HEADING_TOLERANCE = 60           # degrees
+STATIONARY_WAITING_ZONE = 2.0    # km - stationary beyond this are likely docked
 ```
 
 ### Direction Logic

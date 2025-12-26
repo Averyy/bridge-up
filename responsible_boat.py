@@ -18,11 +18,12 @@ from config import BRIDGE_DETAILS, BRIDGE_KEYS
 # Algorithm constants
 MAX_DISTANCE_CLOSING_SOON = 7.0  # km (allows catching vessels approaching from further out)
 MAX_DISTANCE_CLOSED = 4.0  # km (buffer for vessels actively transiting)
-MIN_SCORE_CLOSING_SOON = 0.3  # Same as Closed - vessel heading toward bridge is confident enough
+MIN_SCORE_CLOSING_SOON = 0.25  # Slightly lower than Closed to catch approaching vessels further out
 MIN_SCORE_CLOSED = 0.3
 BASE_SCORE_CAP = 3.0  # Prevents very close vessels from dominating
 MOVING_SPEED_THRESHOLD = 0.5  # knots
 HEADING_TOLERANCE = 60  # degrees
+STATIONARY_WAITING_ZONE = 2.0  # km - stationary vessels beyond this are likely docked, not waiting
 
 
 def get_bridge_region(bridge_id: str) -> str:
@@ -285,13 +286,23 @@ def score_for_closing_soon(vessel: dict, bridge_coords: tuple[float, float],
         else:
             multiplier = 0.3  # Moving away - unlikely
     else:
-        # Stationary
-        if heading_toward is True:
-            multiplier = 2.5  # Pointed at bridge - waiting to transit
-        elif heading_toward is None:
-            multiplier = 0.1  # Unknown - can't confirm waiting
+        # Stationary - only high multiplier if close (actually waiting at bridge)
+        # Distant stationary vessels are likely docked, not waiting
+        if distance_km <= STATIONARY_WAITING_ZONE:
+            if heading_toward is True:
+                multiplier = 2.5  # Close and pointed at bridge - waiting to transit
+            elif heading_toward is None:
+                multiplier = 0.1  # Close but unknown direction - can't confirm waiting
+            else:
+                multiplier = 0.05  # Close but pointed away - probably docked
         else:
-            multiplier = 0.05  # Pointed away - probably docked
+            # Far from bridge - likely docked somewhere, not waiting
+            if heading_toward is True:
+                multiplier = 0.3  # Happens to point toward bridge, but far away
+            elif heading_toward is None:
+                multiplier = 0.05  # Unknown and far - very unlikely
+            else:
+                multiplier = 0.02  # Pointed away and far - almost certainly not responsible
 
     return base_score * multiplier
 

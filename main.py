@@ -297,9 +297,18 @@ class BoatStatus(BaseModel):
 
 
 class BoatsResponse(BaseModel):
-    """Response for /boats endpoint."""
+    """
+    Response for /boats endpoint.
+
+    Only vessels within monitored bounding boxes are included.
+    Vessels outside these regions are not tracked.
+
+    Bounding boxes (approximate ~20-25km buffer around bridges):
+    - Welland Canal: 42.70°N to 43.40°N, 79.40°W to 79.05°W
+    - Montreal: 45.05°N to 45.70°N, 74.35°W to 73.20°W
+    """
     last_updated: str = Field(description="Response timestamp")
-    vessel_count: int = Field(description="Number of moving vessels")
+    vessel_count: int = Field(description="Number of moving vessels in monitored regions")
     status: BoatStatus = Field(description="System status")
     vessels: list[Vessel] = Field(description="Moving vessels")
 
@@ -673,9 +682,14 @@ def get_boats():
     Returns vessels that have moved within the last 30 minutes.
     Data sources: local AIS UDP receivers and AISHub API.
 
-    Regions:
-    - welland: Welland Canal (St. Catharines to Port Colborne)
-    - montreal: Montreal South Shore (St. Lawrence Seaway)
+    **Monitored Regions (vessels outside these bounds are not tracked):**
+
+    | Region | Lat Range | Lon Range | Buffer |
+    |--------|-----------|-----------|--------|
+    | welland | 42.70°N - 43.40°N | 79.40°W - 79.05°W | ~20km |
+    | montreal | 45.05°N - 45.70°N | 74.35°W - 73.20°W | ~25km |
+
+    The bounding boxes cover all bridges plus buffer for approaching vessels.
     """
     from datetime import datetime, timezone
 

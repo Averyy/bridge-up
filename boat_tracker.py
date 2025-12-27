@@ -18,7 +18,13 @@ from pyais import decode
 from loguru import logger
 
 from boat_config import (
-    BOAT_REGIONS,
+    AISHUB_COMBINED_BOUNDS,
+    COG_NOT_AVAILABLE,
+    DIRECTION_MAX_VALID,
+    HEADING_NOT_AVAILABLE,
+    MMSI_MAX,
+    MMSI_MIN,
+    SPEED_NOT_AVAILABLE,
     get_vessel_region,
     get_vessel_type_info,
     sanitize_vessel_name,
@@ -35,6 +41,7 @@ class VesselRegistry:
 
     MAX_UDP_STATIONS = 2
     MAX_VESSELS = 1000  # Safety cap - more than enough for our regions
+    AISHUB_STALE_SECONDS = 60  # AISHub data older than this is considered stale
 
     def __init__(self):
         self.vessels: dict[int, dict] = {}  # MMSI -> vessel data
@@ -91,8 +98,16 @@ class VesselRegistry:
             region = get_vessel_region(lat, lon)
             if region is None:
                 # Outside Welland/Montreal - remove if previously tracked
-                if mmsi in self.vessels:
-                    del self.vessels[mmsi]
+                existing = self.vessels.get(mmsi)
+                if existing:
+                    # UDP is real-time, trust it immediately
+                    # AISHub can be stale, only trust if existing data is old
+                    if source.startswith("udp:"):
+                        del self.vessels[mmsi]
+                    elif source == "aishub":
+                        last_seen = datetime.fromisoformat(existing["last_seen"].replace("Z", "+00:00"))
+                        if (now - last_seen).total_seconds() > self.AISHUB_STALE_SECONDS:
+                            del self.vessels[mmsi]
                 return
 
             existing = self.vessels.get(mmsi)
@@ -114,8 +129,8 @@ class VesselRegistry:
                 self._merge_vessel_data(existing, data, source, region, now)
                 return
 
-            # AISHub only updates if existing data is stale (>60s)
-            if source == "aishub" and age_seconds > 60:
+            # AISHub only updates if existing data is stale
+            if source == "aishub" and age_seconds > self.AISHUB_STALE_SECONDS:
                 self._merge_vessel_data(existing, data, source, region, now)
 
     def _create_vessel_entry(self, mmsi: int, data: dict, source: str,
@@ -361,7 +376,7 @@ class UDPProtocol(asyncio.DatagramProtocol):
             return
 
         # Validate MMSI (ships are 200M-799M range)
-        if not (200_000_000 <= mmsi <= 799_999_999):
+        if not (MMSI_MIN <= mmsi <= MMSI_MAX):
             return
 
         # Build vessel data
@@ -378,15 +393,15 @@ class UDPProtocol(asyncio.DatagramProtocol):
                     vessel_data["lon"] = lon
 
             speed = msg.get("speed")
-            if speed is not None and speed < 102.3:  # 102.3 = not available
+            if speed is not None and speed < SPEED_NOT_AVAILABLE:
                 vessel_data["speed_knots"] = speed
 
             heading = msg.get("heading")
-            if heading is not None and heading < 360:  # 511 = not available
+            if heading is not None and heading < DIRECTION_MAX_VALID:
                 vessel_data["heading"] = heading
 
             course = msg.get("course")
-            if course is not None and course < 360:  # 360 = not available
+            if course is not None and course < DIRECTION_MAX_VALID:
                 vessel_data["course"] = course
 
         if msg_type in self.STATIC_TYPES:
@@ -505,13 +520,15 @@ class AISHubPoller:
     """
     Polls AISHub API with exponential backoff.
 
-    Alternates between regions (Welland/Montreal) every poll.
+    Uses a combined bounding box covering both Welland and Montreal regions.
+    This gives 2x fresher data compared to alternating (each region updates
+    every 60s instead of every 120s). Extra vessels are filtered by region.
+
     Respects 60-second rate limit.
     """
 
     def __init__(self, registry: VesselRegistry):
         self.registry = registry
-        self.current_region = "welland"
         self.last_poll: Optional[datetime] = None
         self.last_error: Optional[str] = None
         self.failure_count = 0
@@ -525,7 +542,7 @@ class AISHubPoller:
         return min(60 * (2 ** (self.failure_count - 1)), 300)
 
     async def poll(self) -> None:
-        """Poll AISHub for current region."""
+        """Poll AISHub for combined region."""
         now = datetime.now(timezone.utc)
 
         # Check if we're in backoff period
@@ -533,7 +550,7 @@ class AISHubPoller:
             return
 
         try:
-            vessels = await self._fetch_region(self.current_region)
+            vessels = await self._fetch_vessels()
 
             for vessel in vessels:
                 mmsi = vessel.get("mmsi")
@@ -548,7 +565,7 @@ class AISHubPoller:
             self.failure_count = 0
             self.next_retry = None
             self.last_error = None
-            logger.debug(f"AISHub: {len(vessels)} vessels from {self.current_region}")
+            logger.debug(f"AISHub: {len(vessels)} vessels fetched")
 
         except Exception as e:
             self.failure_count += 1
@@ -563,27 +580,24 @@ class AISHubPoller:
 
         finally:
             self.last_poll = now
-            # Alternate region regardless of success/failure
-            self.current_region = "montreal" if self.current_region == "welland" else "welland"
 
-    async def _fetch_region(self, region: str) -> list[dict]:
-        """Fetch vessels from AISHub for a region."""
+    async def _fetch_vessels(self) -> list[dict]:
+        """Fetch vessels from AISHub using combined bounding box."""
         api_key = os.getenv('AISHUB_API_KEY')
         if not api_key:
             raise AISHubError("AISHUB_API_KEY not configured")
 
         base_url = os.getenv('AISHUB_URL', 'https://data.aishub.net/ws.php')
-        bounds = BOAT_REGIONS[region]["bounds"]
 
         params = {
             "username": api_key,
             "format": "1",  # JSON
             "output": "json",
             "compress": "0",
-            "latmin": bounds["lat_min"],
-            "latmax": bounds["lat_max"],
-            "lonmin": bounds["lon_min"],
-            "lonmax": bounds["lon_max"],
+            "latmin": AISHUB_COMBINED_BOUNDS["lat_min"],
+            "latmax": AISHUB_COMBINED_BOUNDS["lat_max"],
+            "lonmin": AISHUB_COMBINED_BOUNDS["lon_min"],
+            "lonmax": AISHUB_COMBINED_BOUNDS["lon_max"],
         }
 
         async with httpx.AsyncClient() as client:
@@ -617,7 +631,7 @@ class AISHubPoller:
                 continue
 
             # Validate MMSI (ships are 200M-799M range)
-            if not (200_000_000 <= mmsi <= 799_999_999):
+            if not (MMSI_MIN <= mmsi <= MMSI_MAX):
                 continue
 
             lat = v.get("LATITUDE")
@@ -625,14 +639,23 @@ class AISHubPoller:
             if lat is None or lon is None:
                 continue
 
+            # Validate position bounds (same as UDP)
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                continue
+
+            # Validate speed
+            speed = v.get("SOG")
+            if speed is not None and speed >= SPEED_NOT_AVAILABLE:
+                speed = None
+
             vessel = {
                 "mmsi": mmsi,
                 "name": sanitize_vessel_name(v.get("NAME")),
                 "lat": lat,
                 "lon": lon,
-                "speed_knots": v.get("SOG"),
-                "heading": v.get("HEADING") if v.get("HEADING", 511) < 360 else None,
-                "course": v.get("COG") if v.get("COG", 360) < 360 else None,
+                "speed_knots": speed,
+                "heading": v.get("HEADING") if v.get("HEADING", HEADING_NOT_AVAILABLE) < DIRECTION_MAX_VALID else None,
+                "course": v.get("COG") if v.get("COG", COG_NOT_AVAILABLE) < DIRECTION_MAX_VALID else None,
                 "type": v.get("TYPE"),
                 "destination": sanitize_vessel_name(v.get("DEST")),
             }

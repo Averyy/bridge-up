@@ -235,17 +235,42 @@ class TestScoreForClosingSoon(unittest.TestCase):
         # Should have 2.0x multiplier
         self.assertGreater(score, 1.5)
 
-    def test_moving_away_low_score(self):
-        """Vessel moving away gets low score."""
+    def test_moving_away_fast_zero_score(self):
+        """Vessel moving away at 1.5+ knots gets zero score - cannot cause upcoming closure."""
         vessel = {
             "position": {"lat": 43.18, "lon": -79.20},
             "course": 180,  # South (away from bridge)
-            "speed_knots": 5.0
+            "speed_knots": 5.0  # Well above 1.5 knot threshold
         }
         bridge_coords = (43.19, -79.20)
         score = score_for_closing_soon(vessel, bridge_coords, distance_km=1.0)
-        # Should have 0.3x multiplier
-        self.assertLess(score, 0.5)
+        # Should be exactly 0.0 - impossible to be responsible
+        self.assertEqual(score, 0.0)
+
+    def test_moving_away_slow_low_score(self):
+        """Vessel moving away slowly (< 1.5 knots) gets low score - might be maneuvering."""
+        vessel = {
+            "position": {"lat": 43.18, "lon": -79.20},
+            "course": 180,  # South (away from bridge)
+            "speed_knots": 1.0  # Below 1.5 knot threshold
+        }
+        bridge_coords = (43.19, -79.20)
+        score = score_for_closing_soon(vessel, bridge_coords, distance_km=1.0)
+        # Should have 0.1x multiplier (low but not zero)
+        self.assertGreater(score, 0.0)
+        self.assertLess(score, 0.2)
+
+    def test_moving_away_threshold_exactly(self):
+        """Vessel at exactly 1.5 knots moving away gets zero score."""
+        vessel = {
+            "position": {"lat": 43.18, "lon": -79.20},
+            "course": 180,  # South (away from bridge)
+            "speed_knots": 1.5  # Exactly at threshold
+        }
+        bridge_coords = (43.19, -79.20)
+        score = score_for_closing_soon(vessel, bridge_coords, distance_km=1.0)
+        # At threshold = zero score
+        self.assertEqual(score, 0.0)
 
     def test_stationary_pointed_at_high_score(self):
         """Stationary vessel pointed at bridge gets high score."""

@@ -3,11 +3,22 @@
 Configuration for boat tracking system.
 
 Contains:
+- AIS data validation constants
 - Region bounding boxes (Welland Canal, Montreal)
 - AIS vessel type mappings
 - Vessel name sanitization
 """
 from typing import Optional
+
+
+# AIS data validation constants
+# These are standard AIS protocol values, shared across UDP and AISHub processing
+MMSI_MIN = 200_000_000  # Ships start at 200M
+MMSI_MAX = 799_999_999  # Ships end at 799M (800M+ are SAR, AIS repeaters, etc.)
+SPEED_NOT_AVAILABLE = 102.3  # AIS special value for speed not available
+HEADING_NOT_AVAILABLE = 511  # AIS special value for heading not available
+COG_NOT_AVAILABLE = 360  # AIS special value for course over ground not available
+DIRECTION_MAX_VALID = 360  # Heading and COG valid range is 0-359.9 (exclusive upper bound)
 
 # Region bounding boxes to track approaching vessels
 BOAT_REGIONS = {
@@ -23,6 +34,17 @@ BOAT_REGIONS = {
         # All 7 bridges: Victoria x2, Sainte-Catherine, CP Railway 7A/7B, St-Louis, Larocque
         "bounds": {"lat_min": 45.05, "lat_max": 45.70, "lon_min": -74.35, "lon_max": -73.20}
     }
+}
+
+# Combined bounding box for AISHub polling (covers both regions in one request)
+# AISHub has 1 req/60s limit, so polling one big box gives 2x fresher data for both regions
+# Extra vessels (Lake Ontario, St. Lawrence) are filtered out by get_vessel_region()
+# NOTE: Update this if BOAT_REGIONS changes! Must encompass all regions.
+AISHUB_COMBINED_BOUNDS = {
+    "lat_min": 42.70,   # South of Welland (min of all lat_min)
+    "lat_max": 45.70,   # North of Montreal (max of all lat_max)
+    "lon_min": -79.40,  # West of Welland (min of all lon_min)
+    "lon_max": -73.20   # East of Montreal (max of all lon_max)
 }
 
 # AIS vessel type code -> (display_name, category)

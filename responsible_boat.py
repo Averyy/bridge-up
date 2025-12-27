@@ -13,6 +13,7 @@ import math
 from typing import Optional
 
 from config import BRIDGE_DETAILS, BRIDGE_KEYS
+from boat_config import COG_NOT_AVAILABLE, HEADING_NOT_AVAILABLE
 
 
 # Algorithm constants
@@ -22,6 +23,7 @@ MIN_SCORE_CLOSING_SOON = 0.25  # Slightly lower than Closed to catch approaching
 MIN_SCORE_CLOSED = 0.3
 BASE_SCORE_CAP = 3.0  # Prevents very close vessels from dominating
 MOVING_SPEED_THRESHOLD = 0.5  # knots
+MOVING_AWAY_SPEED_THRESHOLD = 1.5  # knots - vessels moving away faster than this cannot be responsible for "Closing soon"
 HEADING_TOLERANCE = 60  # degrees
 STATIONARY_WAITING_ZONE = 2.0  # km - stationary vessels beyond this are likely docked, not waiting
 
@@ -166,10 +168,6 @@ def get_vessel_direction(vessel: dict, prefer_cog: bool) -> Optional[float]:
     Returns:
         Direction in degrees, or None if not available
     """
-    # AIS special values for "not available"
-    HEADING_NOT_AVAILABLE = 511
-    COG_NOT_AVAILABLE = 360
-
     if prefer_cog:
         # Moving: COG is actual travel direction
         cog = vessel.get("course")
@@ -284,7 +282,11 @@ def score_for_closing_soon(vessel: dict, bridge_coords: tuple[float, float],
         elif heading_toward is None:
             multiplier = 1.0  # Unknown direction
         else:
-            multiplier = 0.3  # Moving away - unlikely
+            # Moving away from bridge - cannot be responsible for upcoming closure
+            if speed >= MOVING_AWAY_SPEED_THRESHOLD:
+                return 0.0  # Clearly moving away at speed - impossible to cause upcoming closure
+            else:
+                multiplier = 0.1  # Slow movement away, might be maneuvering
     else:
         # Stationary - only high multiplier if close (actually waiting at bridge)
         # Distant stationary vessels are likely docked, not waiting

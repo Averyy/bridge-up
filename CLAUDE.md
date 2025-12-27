@@ -304,6 +304,8 @@ AISHub API (HTTP) ────┘
 | UDP (local AIS receivers) | ~1 second | Position, speed, heading |
 | AISHub API | 60 seconds | Position + static data (name, type, dimensions) |
 
+**AISHub Polling Strategy**: Uses a combined bounding box covering both Welland and Montreal regions in a single request. This gives 60s freshness for both regions (vs 120s if alternating). Extra vessels in Lake Ontario/St. Lawrence are filtered out by region bounds. AISHub has a hard limit of 1 request per 60 seconds.
+
 ### Configuration
 - `AISHUB_API_KEY` - API key for AISHub (optional, disables if not set)
 - UDP listens on port 10110 (hardcoded)
@@ -361,7 +363,8 @@ base_score = min(1.0 / (distance_km + 0.1), 3.0)
 |--------------|----------|---------|------------|
 | Moving (≥0.5 kt) | Any | Toward bridge | 2.0 |
 | Moving | Any | Unknown | 1.0 |
-| Moving | Any | Away | 0.3 |
+| Moving (≥1.5 kt) | Any | Away | **0.0** (impossible) |
+| Moving (0.5-1.5 kt) | Any | Away | 0.1 (might be maneuvering) |
 | Stationary | ≤2 km | Toward bridge | 2.5 |
 | Stationary | ≤2 km | Unknown | 0.1 |
 | Stationary | ≤2 km | Away | 0.05 |
@@ -369,7 +372,9 @@ base_score = min(1.0 / (distance_km + 0.1), 3.0)
 | Stationary | >2 km | Unknown | 0.05 |
 | Stationary | >2 km | Away | 0.02 |
 
-**Key insight**: Stationary vessels only get high multipliers if within 2 km (actually waiting at bridge). Distant stationary vessels are likely docked, not waiting.
+**Key insights**:
+- Vessels moving away at ≥1.5 knots get **zero score** - logically impossible to cause an upcoming closure
+- Stationary vessels only get high multipliers if within 2 km (actually waiting at bridge)
 
 **"Closed/Closing"**: No multipliers, but vessel must be moving (speed ≥ 0.5 knots)
 
@@ -381,6 +386,7 @@ MIN_SCORE_CLOSING_SOON = 0.25    # Lower to catch approaching vessels further ou
 MIN_SCORE_CLOSED = 0.3
 BASE_SCORE_CAP = 3.0
 MOVING_SPEED_THRESHOLD = 0.5     # knots
+MOVING_AWAY_SPEED_THRESHOLD = 1.5  # knots - vessels moving away faster get zero score
 HEADING_TOLERANCE = 60           # degrees
 STATIONARY_WAITING_ZONE = 2.0    # km - stationary beyond this are likely docked
 ```

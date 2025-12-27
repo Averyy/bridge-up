@@ -25,7 +25,7 @@ BASE_SCORE_CAP = 3.0  # Prevents very close vessels from dominating
 MOVING_SPEED_THRESHOLD = 0.5  # knots
 MOVING_AWAY_SPEED_THRESHOLD = 1.5  # knots - vessels moving away faster than this cannot be responsible for "Closing soon"
 HEADING_TOLERANCE = 60  # degrees
-STATIONARY_WAITING_ZONE = 2.0  # km - stationary vessels beyond this are likely docked, not waiting
+STATIONARY_WAITING_ZONE = 0.25  # km - only vessels within 250m are actually waiting at the bridge
 
 
 def get_bridge_region(bridge_id: str) -> str:

@@ -273,16 +273,17 @@ class TestScoreForClosingSoon(unittest.TestCase):
         self.assertEqual(score, 0.0)
 
     def test_stationary_pointed_at_high_score(self):
-        """Stationary vessel pointed at bridge gets high score."""
+        """Stationary vessel pointed at bridge within waiting zone gets high score."""
         vessel = {
             "position": {"lat": 43.18, "lon": -79.20},
             "heading": 0,  # Pointing north
             "speed_knots": 0.0
         }
         bridge_coords = (43.19, -79.20)
-        score = score_for_closing_soon(vessel, bridge_coords, distance_km=0.3)
-        # Should have 2.5x multiplier
-        self.assertGreater(score, 3.0)
+        # Must be within STATIONARY_WAITING_ZONE (0.25 km) to get 2.5x multiplier
+        score = score_for_closing_soon(vessel, bridge_coords, distance_km=0.15)
+        # Should have 2.5x multiplier: base = 1/(0.15+0.1) = 4.0, score = 4.0 * 2.5 = 10.0
+        self.assertGreater(score, 5.0)
 
     def test_stationary_unknown_heading_low_score(self):
         """Stationary vessel with unknown heading gets low score."""

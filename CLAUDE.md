@@ -365,16 +365,16 @@ base_score = min(1.0 / (distance_km + 0.1), 3.0)
 | Moving | Any | Unknown | 1.0 |
 | Moving (≥1.5 kt) | Any | Away | **0.0** (impossible) |
 | Moving (0.5-1.5 kt) | Any | Away | 0.1 (might be maneuvering) |
-| Stationary | ≤2 km | Toward bridge | 2.5 |
-| Stationary | ≤2 km | Unknown | 0.1 |
-| Stationary | ≤2 km | Away | 0.05 |
-| Stationary | >2 km | Toward bridge | 0.3 |
-| Stationary | >2 km | Unknown | 0.05 |
-| Stationary | >2 km | Away | 0.02 |
+| Stationary | ≤250m | Toward bridge | 2.5 |
+| Stationary | ≤250m | Unknown | 0.1 |
+| Stationary | ≤250m | Away | 0.05 |
+| Stationary | >250m | Toward bridge | 0.3 |
+| Stationary | >250m | Unknown | 0.05 |
+| Stationary | >250m | Away | 0.02 |
 
 **Key insights**:
 - Vessels moving away at ≥1.5 knots get **zero score** - logically impossible to cause an upcoming closure
-- Stationary vessels only get high multipliers if within 2 km (actually waiting at bridge)
+- Stationary vessels only get high multipliers if within 250m (actually waiting at bridge)
 
 **"Closed/Closing"**: No multipliers, but vessel must be moving (speed ≥ 0.5 knots)
 
@@ -388,7 +388,7 @@ BASE_SCORE_CAP = 3.0
 MOVING_SPEED_THRESHOLD = 0.5     # knots
 MOVING_AWAY_SPEED_THRESHOLD = 1.5  # knots - vessels moving away faster get zero score
 HEADING_TOLERANCE = 60           # degrees
-STATIONARY_WAITING_ZONE = 2.0    # km - stationary beyond this are likely docked
+STATIONARY_WAITING_ZONE = 0.25   # km - only vessels within 250m are actually waiting
 ```
 
 ### Direction Logic

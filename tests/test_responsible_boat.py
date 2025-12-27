@@ -193,7 +193,7 @@ class TestScoreForClosed(unittest.TestCase):
 
     def test_stationary_vessel_zero(self):
         """Stationary vessel gets zero score."""
-        vessel = {"speed_knots": 0.2}  # Below 0.5 threshold
+        vessel = {"speed_knots": 0.05}  # Below 0.1 threshold
         score = score_for_closed(vessel, distance_km=0.5)
         self.assertEqual(score, 0.0)
 

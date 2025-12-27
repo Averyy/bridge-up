@@ -418,3 +418,63 @@ HEADING_TOLERANCE = 60           # degrees
 - `.claude/agent/instructions.md` - Key Components
 - `.claude/agent/memory.md` - This session
 - `.claude/shared/project-context.md` - Key Components, test count, JSON schema
+
+## Session: December 27, 2025 - Responsible Vessel & AISHub Improvements
+
+### Bug Fixed: Moving-Away Vessels for "Closing soon"
+**Problem**: Vessels actively traveling AWAY from a "Closing soon" bridge were being tagged as responsible.
+
+**Solution**: Added `MOVING_AWAY_SPEED_THRESHOLD = 1.5` knots constant. Vessels moving away at ≥1.5 knots get zero score for "Closing soon" (impossible to cause an upcoming closure). Slow movement (<1.5 knots) gets 0.1 multiplier (might be maneuvering).
+
+### Feature: Combined Bounding Box for AISHub
+**Problem**: Tick-tock alternating between Welland and Montreal meant each region only updated every 120s.
+
+**Solution**: Poll a single combined bounding box covering both regions in one request. This gives 2x fresher data (60s vs 120s) given AISHub's hard limit of 1 request per 60 seconds. Extra vessels (Lake Ontario, St. Lawrence corridor) are filtered out by `get_vessel_region()`.
+
+**New constant in boat_config.py**:
+```python
+AISHUB_COMBINED_BOUNDS = {
+    "lat_min": 42.70,   # South of Welland
+    "lat_max": 45.70,   # North of Montreal
+    "lon_min": -79.40,  # West of Welland
+    "lon_max": -73.20   # East of Montreal
+}
+```
+
+### Bug Fixed: Heading Validation
+**Problem**: Used `heading < 511` (HEADING_NOT_AVAILABLE) when it should have been `heading < 360`. Would have accepted invalid headings 360-510.
+
+**Solution**: Added `DIRECTION_MAX_VALID = 360` constant and used it for both heading and course validation in boat_tracker.py.
+
+### Improvement: AIS Validation Constants
+Extracted magic numbers to `boat_config.py` for consistency:
+```python
+MMSI_MIN = 200_000_000
+MMSI_MAX = 799_999_999
+SPEED_NOT_AVAILABLE = 102.3
+HEADING_NOT_AVAILABLE = 511
+COG_NOT_AVAILABLE = 360
+DIRECTION_MAX_VALID = 360
+```
+
+### Bug Fixed: AISHub Stale-Data Removal
+**Problem**: AISHub could remove vessels that UDP had fresh data for.
+
+**Solution**: In `update_vessel()`, when AISHub reports a vessel outside regions, only remove if existing data is older than 60 seconds (AISHUB_STALE_SECONDS). UDP removes immediately (real-time trust).
+
+### Improvement: Filtering Parity
+Added lat/lon bounds validation (-90 to 90, -180 to 180) and speed validation (< 102.3) to AISHub, matching UDP's filtering logic.
+
+### Files Modified
+- `responsible_boat.py` - Added MOVING_AWAY_SPEED_THRESHOLD, zero score for fast moving-away
+- `boat_config.py` - Added AIS constants, AISHUB_COMBINED_BOUNDS
+- `boat_tracker.py` - Combined polling, stale-data fix, filtering parity, use shared constants
+- `tests/test_responsible_boat.py` - 3 new tests for moving-away threshold
+- `CLAUDE.md` - Updated multiplier table, constants
+
+### Key Lesson: Think Hard About Edge Cases
+Multiple issues caught during "think ultrahard" review:
+- Heading validation bug (360 vs 511)
+- Stale-data removal edge case
+- Filtering inconsistency between UDP and AISHub
+- Magic number duplication

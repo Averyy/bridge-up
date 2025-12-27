@@ -103,6 +103,13 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
 - Two regions: Welland Canal, Montreal South Shore
 - Filters: MMSI 200M-799M, moved in last 30 min, within bounding box
 - In-memory only, REST endpoint (no WebSocket)
+- AISHub uses combined bounding box (covers both regions in one request for 2x fresher data)
+
+### 6. Responsible Vessel Attribution
+- Identifies which vessel caused a bridge closure
+- "Closing soon": Approaching OR waiting at bridge (vessels moving away at ≥1.5 knots get zero score)
+- "Closed/Closing": Actively passing through (must be moving)
+- Score-based with distance, heading, and speed factors
 
 ## JSON Schema
 

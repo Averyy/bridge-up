@@ -279,6 +279,10 @@ def score_for_closing_soon(vessel: dict, bridge_coords: tuple[float, float],
     if is_moving:
         if heading_toward is True:
             multiplier = 2.0  # Approaching - very likely
+            if speed > 1:
+                multiplier += 0.2  # Clearly underway
+                if speed > 4:
+                    multiplier += 0.2  # Fast approach
         elif heading_toward is None:
             multiplier = 1.0  # Unknown direction
         else:
@@ -300,7 +304,7 @@ def score_for_closing_soon(vessel: dict, bridge_coords: tuple[float, float],
         else:
             # Far from bridge - likely docked somewhere, not waiting
             if heading_toward is True:
-                multiplier = 0.3  # Happens to point toward bridge, but far away
+                multiplier = 0.2  # Happens to point toward bridge, but far away
             elif heading_toward is None:
                 multiplier = 0.05  # Unknown and far - very unlikely
             else:

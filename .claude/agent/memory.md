@@ -478,3 +478,34 @@ Multiple issues caught during "think ultrahard" review:
 - Stale-data removal edge case
 - Filtering inconsistency between UDP and AISHub
 - Magic number duplication
+
+## Session: December 29, 2025 - Responsible Vessel Scoring Fix
+
+### Bug Fixed: Docked Vessels Beating Approaching Vessels
+**Problem**: A stationary vessel (Laprairie) 360m from the bridge was being selected as responsible instead of Narie, which was actively approaching at 7 knots from 5km away.
+
+**Root Cause Analysis**:
+- Base score formula `1/(distance + 0.1)` heavily favors proximity (11x advantage for 0.36km vs 5km)
+- Stationary vessels outside 250m zone pointing toward bridge had multiplier 0.3
+- Result: Laprairie scored 0.65 vs Narie's 0.39
+
+**Solution**: Two changes to balance proximity advantage vs active approach:
+
+1. **Lowered multiplier for stationary vessels outside waiting zone** (>250m):
+   - 0.3 → 0.2 (these are likely docked, not causing closure)
+
+2. **Added speed bonuses for moving vessels heading toward bridge**:
+   - >1 kt: +0.2 (total 2.2)
+   - >4 kt: +0.2 more (total 2.4)
+   - Rewards vessels clearly underway
+
+**Result**:
+| Vessel | Base | Multiplier | Score |
+|--------|------|------------|-------|
+| Laprairie (stationary, 0.36km) | 2.17 | 0.2 | 0.43 |
+| Narie (7 kts, 5km) | 0.196 | 2.4 | 0.47 ✓ |
+
+**Key Design Decision**: Vessels actually waiting at the bridge (<250m) still get 2.5 multiplier and dominate (score ~7.5), so this change only affects distant stationary vessels that "happen to point toward bridge".
+
+**Files Modified**:
+- `responsible_boat.py` - Lowered stationary multiplier, added speed bonuses

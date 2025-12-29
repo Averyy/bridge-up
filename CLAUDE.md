@@ -361,16 +361,23 @@ base_score = min(1.0 / (distance_km + 0.1), 3.0)
 **Multipliers for "Closing soon"**:
 | Vessel State | Distance | Heading | Multiplier |
 |--------------|----------|---------|------------|
-| Moving (≥0.5 kt) | Any | Toward bridge | 2.0 |
+| Moving (≥0.1 kt) | Any | Toward bridge | 2.0 + speed bonus |
 | Moving | Any | Unknown | 1.0 |
 | Moving (≥1.5 kt) | Any | Away | **0.0** (impossible) |
-| Moving (0.5-1.5 kt) | Any | Away | 0.1 (might be maneuvering) |
+| Moving (0.1-1.5 kt) | Any | Away | 0.1 (might be maneuvering) |
 | Stationary | ≤250m | Toward bridge | 2.5 |
 | Stationary | ≤250m | Unknown | 0.1 |
 | Stationary | ≤250m | Away | 0.05 |
-| Stationary | >250m | Toward bridge | 0.3 |
+| Stationary | >250m | Toward bridge | 0.2 |
 | Stationary | >250m | Unknown | 0.05 |
 | Stationary | >250m | Away | 0.02 |
+
+**Speed bonuses for moving vessels heading toward bridge**:
+| Speed | Bonus | Total Multiplier |
+|-------|-------|------------------|
+| 0.1-1 kt | +0.0 | 2.0 |
+| >1 kt | +0.2 | 2.2 |
+| >4 kt | +0.2 more | 2.4 |
 
 **Key insights**:
 - Vessels moving away at ≥1.5 knots get **zero score** - logically impossible to cause an upcoming closure

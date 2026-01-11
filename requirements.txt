@@ -22,5 +22,8 @@ apscheduler==3.11.2
 # Logging
 loguru==0.7.3
 
+# Rate limiting
+slowapi==0.1.9
+
 # AIS decoding (boat tracking)
 pyais==2.14.0

@@ -8,15 +8,18 @@ This is the main entry point for the migrated backend:
 - APScheduler for background scraping tasks
 - CORS configuration for web clients
 """
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import JSONResponse, HTMLResponse
 from pydantic import BaseModel, Field
 from typing import Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
 import copy
 import json
 import asyncio
@@ -32,6 +35,53 @@ from loguru import logger
 
 # Boat tracker (initialized in lifespan if enabled)
 boat_tracker = None
+
+
+def get_real_client_ip(request: Request) -> str:
+    """
+    Get the real client IP, checking proxy headers first.
+
+    When behind a reverse proxy (Caddy/Nginx), the direct client IP
+    is the proxy, not the actual user. The proxy sets X-Forwarded-For
+    or X-Real-IP headers with the real client IP.
+
+    Security note: We take the RIGHTMOST IP from X-Forwarded-For because:
+    - Caddy APPENDS the real client IP to any existing header
+    - A malicious client could send "X-Forwarded-For: spoofed.ip"
+    - Caddy would forward "X-Forwarded-For: spoofed.ip, real.client.ip"
+    - Taking rightmost gives us what Caddy added (the real IP)
+    """
+    # X-Forwarded-For: Caddy appends the real client IP as the rightmost entry
+    # Format: "client-provided, ..., caddy-added-real-ip"
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        # Take the rightmost (last) IP - this is what Caddy adds
+        return forwarded.split(",")[-1].strip()
+
+    # Some proxies use X-Real-IP instead
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip.strip()
+
+    # Fallback to direct connection (local dev or no proxy)
+    # Check both request.client and request.client.host - host can be None with Unix sockets
+    return request.client.host if request.client and request.client.host else "127.0.0.1"
+
+
+# Rate limiter (in-memory, uses real client IP behind proxy)
+limiter = Limiter(key_func=get_real_client_ip)
+
+
+def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """Return 429 with Retry-After header when rate limit exceeded."""
+    return JSONResponse(
+        status_code=429,
+        content={
+            "error": "Rate limit exceeded",
+            "detail": str(exc.detail)
+        },
+        headers={"Retry-After": "60"}
+    )
 
 
 # === Response Models for API Documentation ===
@@ -524,8 +574,13 @@ app = FastAPI(
     contact={"url": "https://bridgeup.app"},
     lifespan=lifespan,
     docs_url=None,
-    redoc_url=None
+    redoc_url=None,
+    openapi_url=None  # We serve /openapi.json ourselves with rate limiting
 )
+
+# Register rate limiter
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # Mount static files for custom CSS
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -639,7 +694,8 @@ def broadcast_sync(data: dict):
 
 
 @app.get("/bridges", response_model=BridgesResponse)
-def get_bridges():
+@limiter.limit("60/minute")
+def get_bridges(request: Request, response: Response):
     """
     Get current state of all bridges.
 
@@ -648,8 +704,13 @@ def get_bridges():
 
     Includes `responsible_vessel_mmsi` for bridges with closure status,
     identifying the vessel most likely causing the closure.
+
+    Rate limit: 60 requests/minute per IP.
+    Cache: Responses cached for 10 seconds (data updates every ~20s).
     """
     from responsible_boat import find_responsible_vessel
+
+    response.headers["Cache-Control"] = "public, max-age=10"
 
     with last_known_state_lock:
         bridges = copy.deepcopy(last_known_state)
@@ -675,7 +736,8 @@ def get_bridges():
 
 
 @app.get("/bridges/{bridge_id}", response_model=BridgeData)
-def get_bridge(bridge_id: str):
+@limiter.limit("60/minute")
+def get_bridge(bridge_id: str, request: Request, response: Response):
     """
     Get a single bridge by ID.
 
@@ -683,8 +745,13 @@ def get_bridge(bridge_id: str):
     Served from memory cache for faster responses.
 
     Includes `responsible_vessel_mmsi` for bridges with closure status.
+
+    Rate limit: 60 requests/minute per IP.
+    Cache: Responses cached for 10 seconds.
     """
     from responsible_boat import find_responsible_vessel
+
+    response.headers["Cache-Control"] = "public, max-age=10"
 
     with last_known_state_lock:
         bridge = last_known_state.get(bridge_id)
@@ -706,10 +773,15 @@ def get_bridge(bridge_id: str):
 
 
 @app.get("/", response_model=RootResponse)
-def root():
+@limiter.limit("30/minute")
+def root(request: Request, response: Response):
     """
     API root - returns available endpoints.
+
+    Rate limit: 30 requests/minute per IP.
+    Cache: 60 seconds (static content).
     """
+    response.headers["Cache-Control"] = "public, max-age=60"
     return {
         "name": "Bridge Up API",
         "description": "Real-time bridge status for St. Lawrence Seaway",
@@ -725,10 +797,9 @@ def root():
 
 
 @app.get("/docs", include_in_schema=False)
-async def custom_swagger_ui():
+@limiter.limit("30/minute")
+async def custom_swagger_ui(request: Request) -> HTMLResponse:
     """Serve custom-styled Swagger UI with dark theme."""
-    from fastapi.responses import HTMLResponse
-
     # Get default Swagger UI HTML
     html = get_swagger_ui_html(
         openapi_url="/openapi.json",
@@ -742,11 +813,22 @@ async def custom_swagger_ui():
         f'{custom_css_link}</head>'
     )
 
-    return HTMLResponse(content=modified_html)
+    return HTMLResponse(content=modified_html, headers={"Cache-Control": "public, max-age=60"})
+
+
+@app.get("/openapi.json", include_in_schema=False)
+@limiter.limit("30/minute")
+async def get_openapi_schema(request: Request) -> JSONResponse:
+    """Return OpenAPI schema with rate limiting."""
+    return JSONResponse(
+        content=app.openapi(),
+        headers={"Cache-Control": "public, max-age=60"}
+    )
 
 
 @app.get("/boats", response_model=BoatsResponse)
-def get_boats():
+@limiter.limit("60/minute")
+def get_boats(request: Request, response: Response):
     """
     Get current vessel positions in monitored regions.
 
@@ -761,8 +843,11 @@ def get_boats():
     | montreal | 45.05°N - 45.70°N | 74.35°W - 73.20°W | ~25km |
 
     The bounding boxes cover all bridges plus buffer for approaching vessels.
+
+    Rate limit: 60 requests/minute per IP.
+    Cache: Responses cached for 10 seconds.
     """
-    from datetime import datetime, timezone
+    response.headers["Cache-Control"] = "public, max-age=10"
 
     if boat_tracker:
         return boat_tracker.get_boats_response()
@@ -780,7 +865,8 @@ def get_boats():
 
 
 @app.get("/health", response_model=HealthResponse)
-def health():
+@limiter.limit("30/minute")
+def health(request: Request, response: Response):
     """
     Health check endpoint for monitoring.
 
@@ -797,7 +883,12 @@ def health():
         - statistics_last_updated: timestamp of last statistics calculation
         - bridges_count: number of bridges in data
         - websocket_clients: number of connected clients
+
+    Rate limit: 30 requests/minute per IP.
+    Cache: Responses cached for 5 seconds.
     """
+    response.headers["Cache-Control"] = "public, max-age=5"
+
     now = datetime.now(TIMEZONE)
     status = "ok"
     status_message = "All systems operational"

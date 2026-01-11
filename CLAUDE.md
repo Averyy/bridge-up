@@ -59,13 +59,19 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
 
 ## API Endpoints
 
-- `WS /ws` - WebSocket for real-time bridge updates
-- `GET /` - API root with endpoint discovery
-- `GET /bridges` - HTTP fallback (same data as WebSocket)
-- `GET /bridges/{id}` - Single bridge by ID
-- `GET /boats` - Vessel positions in bridge regions (REST only)
-- `GET /health` - Health check with status info
-- `GET /docs` - Custom Swagger UI with dark theme (matches bridgeup.app branding)
+| Endpoint | Rate Limit | Cache | Description |
+|----------|------------|-------|-------------|
+| `WS /ws` | - | - | WebSocket for real-time bridge updates |
+| `GET /` | 30/min | 60s | API root with endpoint discovery |
+| `GET /bridges` | 60/min | 10s | HTTP fallback (same data as WebSocket) |
+| `GET /bridges/{id}` | 60/min | 10s | Single bridge by ID |
+| `GET /boats` | 60/min | 10s | Vessel positions in bridge regions (REST only) |
+| `GET /health` | 30/min | 5s | Health check with status info |
+| `GET /docs` | 30/min | 60s | Custom Swagger UI with dark theme |
+| `GET /openapi.json` | 30/min | 60s | OpenAPI schema |
+
+**Rate Limiting**: Uses slowapi (in-memory). Returns 429 with `Retry-After: 60` header.
+**Caching**: Cache-Control headers for browser/CDN caching. WebSocket unaffected.
 
 ### Health Endpoint (`/health`)
 
@@ -407,3 +413,18 @@ STATIONARY_WAITING_ZONE = 0.25   # km - only vessels within 250m are actually wa
 - Calculated on-demand for `/bridges` and `/bridges/{id}` endpoints
 - Injected into WebSocket broadcasts and initial connection
 - Returns `null` for non-closure statuses or when no confident match
+
+## Rate Limiting & Caching (January 2026)
+
+### Rate Limiting
+- **Library**: slowapi (in-memory storage)
+- **Limits**: 60/min for data endpoints, 30/min for static endpoints
+- **Response**: 429 status with `Retry-After: 60` header
+- **IP Detection**: Takes rightmost X-Forwarded-For (Caddy appends real IP)
+
+### Response Caching
+- **Headers**: `Cache-Control: public, max-age=X`
+- **Data endpoints**: 10s cache (data updates every ~20s anyway)
+- **Static endpoints**: 60s cache
+- **Health**: 5s cache
+- **WebSocket**: Unaffected (real-time push)

@@ -509,3 +509,40 @@ Multiple issues caught during "think ultrahard" review:
 
 **Files Modified**:
 - `responsible_boat.py` - Lowered stationary multiplier, added speed bonuses
+
+## Session: January 11, 2026 - Rate Limiting & Response Caching
+
+### New Feature: API Protection
+**Purpose**: Protect public API from abuse while improving performance via caching.
+
+**Rate Limiting Implementation**:
+- Added slowapi library for in-memory rate limiting
+- Data endpoints: 60 requests/minute per IP
+- Static endpoints: 30 requests/minute per IP
+- WebSocket: No rate limiting (long-lived connections)
+- Returns 429 with `Retry-After: 60` header when exceeded
+
+**Response Caching**:
+- Added `Cache-Control: public, max-age=X` headers to all endpoints
+- Data endpoints: 10s cache (data updates every ~20s anyway)
+- Static endpoints: 60s cache
+- Health: 5s cache
+
+**Security: Caddy IP Detection**:
+- Takes RIGHTMOST IP from X-Forwarded-For header
+- Caddy APPENDS real client IP (doesn't replace)
+- Prevents IP spoofing to bypass rate limits
+
+**Technical Details**:
+- Disabled FastAPI's default `/openapi.json` route to serve our own with rate limiting
+- Used `Response` parameter pattern to add headers while keeping Pydantic validation
+- Fallback to 127.0.0.1 when request.client.host is None (Unix sockets)
+
+**Files Modified**:
+- `main.py` - Rate limiter, cache headers, IP detection
+- `requirements.txt` - Added slowapi==0.1.9
+
+**Files Updated**:
+- `README.md` - Endpoints table with rate limits and cache
+- `CLAUDE.md` - API endpoints table, new Rate Limiting section
+- `.claude/agent/memory.md` - This session

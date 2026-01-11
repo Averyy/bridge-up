@@ -45,15 +45,17 @@ Backend API powering the [Bridge Up iOS app](https://bridgeup.app). Never wait a
 
 ### Endpoints
 
-| Endpoint | Description |
-|----------|-------------|
-| `wss://api.bridgeup.app/ws` | WebSocket (real-time bridge updates) |
-| `GET /` | API root with endpoint discovery |
-| `GET /bridges` | All bridges (same data as WebSocket) |
-| `GET /bridges/{id}` | Single bridge by ID |
-| `GET /boats` | Vessel positions in bridge regions |
-| `GET /health` | Health check |
-| `GET /docs` | API documentation |
+| Endpoint | Rate Limit | Cache | Description |
+|----------|------------|-------|-------------|
+| `wss://api.bridgeup.app/ws` | - | - | WebSocket (real-time bridge updates) |
+| `GET /` | 30/min | 60s | API root with endpoint discovery |
+| `GET /bridges` | 60/min | 10s | All bridges (same data as WebSocket) |
+| `GET /bridges/{id}` | 60/min | 10s | Single bridge by ID |
+| `GET /boats` | 60/min | 10s | Vessel positions in bridge regions |
+| `GET /health` | 30/min | 5s | Health check |
+| `GET /docs` | 30/min | 60s | API documentation |
+
+**Rate limiting**: Per IP, returns 429 with `Retry-After: 60` header when exceeded.
 
 ### REST Example
 

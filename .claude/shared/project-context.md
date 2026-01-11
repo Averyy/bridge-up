@@ -29,13 +29,17 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
 
 ## API Endpoints
 
-- `WS /ws` - WebSocket for real-time updates (push on change)
-- `GET /` - API root with endpoint discovery
-- `GET /bridges` - HTTP fallback (same data as WebSocket)
-- `GET /bridges/{id}` - Single bridge by ID
-- `GET /boats` - Vessel positions in bridge regions (REST only)
-- `GET /health` - Health check with status info
-- `GET /docs` - Custom Swagger UI with Bridge Up dark theme
+| Endpoint | Rate Limit | Cache | Description |
+|----------|------------|-------|-------------|
+| `WS /ws` | - | - | WebSocket for real-time updates (push on change) |
+| `GET /` | 30/min | 60s | API root with endpoint discovery |
+| `GET /bridges` | 60/min | 10s | HTTP fallback (same data as WebSocket) |
+| `GET /bridges/{id}` | 60/min | 10s | Single bridge by ID |
+| `GET /boats` | 60/min | 10s | Vessel positions in bridge regions (REST only) |
+| `GET /health` | 30/min | 5s | Health check with status info |
+| `GET /docs` | 30/min | 60s | Custom Swagger UI with Bridge Up dark theme |
+
+Rate limiting uses slowapi (in-memory). Caching via Cache-Control headers.
 
 ### API Documentation
 - Custom dark theme in `static/swagger-custom.css`

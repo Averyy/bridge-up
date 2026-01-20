@@ -196,15 +196,27 @@ def parse_old_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
             continue
 
         try:
+            # Try multi-day format first: "JAN 10, 2026 07:00 - MAR 14, 2026 17:00 (24/7)"
+            # Times are attached to each date, optional suffix like (24/7)
             match = re.match(
-                r'([A-Z]{3} \d{1,2}, \d{4}) - ([A-Z]{3} \d{1,2}, \d{4}), (\d{2}:\d{2}) - (\d{2}:\d{2})',
-                closure_period
+                r'([A-Z]{3} \d{1,2}, \d{4}) (\d{2}:\d{2}) - ([A-Z]{3} \d{1,2}, \d{4}) (\d{2}:\d{2})',
+                closure_period.strip()
             )
-            if not match:
-                logger.warning(f"Failed to match closure pattern: {closure_period}")
-                continue
+            if match:
+                start_date_str, start_time_str, end_date_str, end_time_str = match.groups()
+            else:
+                # Try single-day format: "DEC 22, 2026 - DEC 22, 2026, 09:00 - 12:00"
+                # Date range first, then time range at the end
+                match = re.match(
+                    r'([A-Z]{3} \d{1,2}, \d{4}) - ([A-Z]{3} \d{1,2}, \d{4}), (\d{2}:\d{2}) - (\d{2}:\d{2})',
+                    closure_period.strip()
+                )
+                if match:
+                    start_date_str, end_date_str, start_time_str, end_time_str = match.groups()
+                else:
+                    logger.warning(f"Failed to match closure pattern: {closure_period}")
+                    continue
 
-            start_date_str, end_date_str, start_time_str, end_time_str = match.groups()
             start_date = datetime.strptime(start_date_str, '%b %d, %Y')
             end_date = datetime.strptime(end_date_str, '%b %d, %Y')
             start_hour, start_min = map(int, start_time_str.split(':'))

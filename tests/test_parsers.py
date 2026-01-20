@@ -179,6 +179,78 @@ class TestParseOldJson(unittest.TestCase):
         self.assertEqual(closure['end_time'].day, 24)
         self.assertEqual(closure['end_time'].hour, 17)
 
+    def test_multiday_closure_format_with_times_attached(self):
+        """Test multi-day format where times are attached to dates: JAN 10, 2026 07:00 - MAR 14, 2026 17:00 (24/7)"""
+        json_data = {
+            'bridgeModelList': [
+                {'address': 'Clarence St. ', 'status': 'Unavailable (Work in Progress)', 'vessel1ETA': '----'}
+            ],
+            'bridgeClosureList': [
+                {
+                    'bridgeAddress': 'Clarence St. ',
+                    'closureP': 'JAN 10, 2026 07:00 - MAR 14, 2026 17:00 (24/7) ',
+                    'continuousHour': 'Y',
+                    'reason': 'Bridge / road maintenance'
+                }
+            ]
+        }
+
+        result = parse_old_json(json_data)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result[0]['upcoming_closures']), 1)
+        closure = result[0]['upcoming_closures'][0]
+        self.assertEqual(closure['type'], 'Construction')
+        # Verify start: Jan 10, 2026 at 7:00
+        self.assertEqual(closure['time'].year, 2026)
+        self.assertEqual(closure['time'].month, 1)
+        self.assertEqual(closure['time'].day, 10)
+        self.assertEqual(closure['time'].hour, 7)
+        self.assertEqual(closure['time'].minute, 0)
+        # Verify end: Mar 14, 2026 at 17:00
+        self.assertEqual(closure['end_time'].year, 2026)
+        self.assertEqual(closure['end_time'].month, 3)
+        self.assertEqual(closure['end_time'].day, 14)
+        self.assertEqual(closure['end_time'].hour, 17)
+        self.assertEqual(closure['end_time'].minute, 0)
+
+    def test_both_closure_formats_in_same_response(self):
+        """Test that both closure formats can coexist in same response"""
+        json_data = {
+            'bridgeModelList': [
+                {'address': 'Bridge A', 'status': 'Available', 'vessel1ETA': '----'},
+                {'address': 'Bridge B', 'status': 'Available', 'vessel1ETA': '----'}
+            ],
+            'bridgeClosureList': [
+                {
+                    'bridgeAddress': 'Bridge A',
+                    'closureP': 'DEC 22, 2026 - DEC 22, 2026, 09:00 - 12:00',  # Single-day format
+                    'continuousHour': 'N',
+                    'reason': 'Maintenance'
+                },
+                {
+                    'bridgeAddress': 'Bridge B',
+                    'closureP': 'JAN 10, 2026 07:00 - MAR 14, 2026 17:00 (24/7)',  # Multi-day format
+                    'continuousHour': 'Y',
+                    'reason': 'Construction'
+                }
+            ]
+        }
+
+        result = parse_old_json(json_data)
+
+        # Bridge A should have single-day closure
+        bridge_a = next(b for b in result if b['name'] == 'Bridge A')
+        self.assertEqual(len(bridge_a['upcoming_closures']), 1)
+        self.assertEqual(bridge_a['upcoming_closures'][0]['time'].month, 12)
+        self.assertEqual(bridge_a['upcoming_closures'][0]['time'].day, 22)
+
+        # Bridge B should have multi-day closure
+        bridge_b = next(b for b in result if b['name'] == 'Bridge B')
+        self.assertEqual(len(bridge_b['upcoming_closures']), 1)
+        self.assertEqual(bridge_b['upcoming_closures'][0]['time'].month, 1)
+        self.assertEqual(bridge_b['upcoming_closures'][0]['end_time'].month, 3)
+
 
 class TestParseNewJson(unittest.TestCase):
     """Tests for parse_new_json() - new API format"""

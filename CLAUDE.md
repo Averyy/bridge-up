@@ -44,6 +44,17 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
 - **Respect scraping ethics** - don't aggressively scrape or you'll get IP blocked
 - When debugging issues, focus on fixing the existing implementation, not replacing it
 
+## Python Environment
+
+Python is managed via **uv** (see `~/Code/CLAUDE.md` for global setup).
+
+```bash
+# Create venv and install dependencies
+uv venv --python 3.11
+source .venv/bin/activate
+uv pip install -r requirements.txt
+```
+
 ## Python Development Standards
 
 - Use Python 3.11+ with type hints for all functions

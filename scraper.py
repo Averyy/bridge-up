@@ -888,8 +888,14 @@ def scrape_and_update() -> None:
     end_time = datetime.now(TIMEZONE)
     duration = (end_time - start_time).total_seconds()
 
-    # Update last scrape time (change flag already set by update_json_and_broadcast if needed)
-    shared.last_scrape_time = end_time
+    # Only update last_scrape_time if at least one region succeeded
+    # This ensures health check detects when scraping is completely broken
+    with shared.scrape_state_lock:
+        if success_count > 0:
+            shared.last_scrape_time = end_time
+            shared.consecutive_scrape_failures = 0
+        else:
+            shared.consecutive_scrape_failures += 1
 
     logger.info(f"Done in {duration:.1f}s - All: {success_count} ✓, {fail_count} ✗")
 

@@ -897,13 +897,23 @@ def health(request: Request, response: Response):
     with last_known_state_lock:
         bridges_count = len(last_known_state)
 
+    # Read scrape state atomically to avoid race conditions
+    with shared.scrape_state_lock:
+        consecutive_failures = shared.consecutive_scrape_failures
+        last_scrape = shared.last_scrape_time
+
+    # Check for consecutive scrape failures (all regions failing)
+    if consecutive_failures >= 3:
+        status = "error"
+        status_message = f"Scraper failing: {consecutive_failures} consecutive failures (all regions)"
+
     # Check scraper health (runs every 20-30s, so 5 min = definitely stuck)
-    if shared.last_scrape_time:
-        scrape_age = now - shared.last_scrape_time
+    if last_scrape and status == "ok":
+        scrape_age = now - last_scrape
         if scrape_age > timedelta(minutes=5):
             status = "error"
             minutes_ago = int(scrape_age.total_seconds() / 60)
-            status_message = f"Scraper has not run in {minutes_ago} minutes, may be stuck or crashed"
+            status_message = f"Scraper has not succeeded in {minutes_ago} minutes"
 
     # Check data freshness (24h without any bridge change is unusual)
     if shared.last_updated_time and status == "ok":
@@ -919,7 +929,7 @@ def health(request: Request, response: Response):
         "status": status,
         "status_message": status_message,
         "last_updated": shared.last_updated_time.isoformat() if shared.last_updated_time else None,
-        "last_scrape": shared.last_scrape_time.isoformat() if shared.last_scrape_time else None,
+        "last_scrape": last_scrape.isoformat() if last_scrape else None,
         "last_scrape_had_changes": shared.last_scrape_had_changes,
         "statistics_last_updated": shared.statistics_last_updated.isoformat() if shared.statistics_last_updated else None,
         "bridges_count": bridges_count,

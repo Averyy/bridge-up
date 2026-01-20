@@ -17,9 +17,11 @@ import pytz
 # Timezone for Toronto/Eastern time
 TIMEZONE = pytz.timezone('America/Toronto')
 
-# Last scrape timestamp (for health monitoring)
+# Last scrape timestamp (for health monitoring) - only updated on successful scrapes
 last_scrape_time: Optional[datetime] = None
 last_scrape_had_changes: bool = False
+consecutive_scrape_failures: int = 0  # Resets to 0 on any successful scrape
+scrape_state_lock = threading.Lock()  # Protects last_scrape_time and consecutive_scrape_failures
 
 # Last time bridge data actually changed (for /bridges endpoint and health check)
 last_updated_time: Optional[datetime] = None

@@ -6,7 +6,11 @@ Scrapes bridge status from JSON APIs, stores in JSON files, and broadcasts
 updates via WebSocket. Migrated from Firebase to self-hosted storage.
 """
 import requests
+import urllib3
 from datetime import datetime, timedelta
+
+# Suppress SSL warnings - seaway-greatlakes.com doesn't send full cert chain
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from typing import Dict, List, Tuple, Optional, Any
 import pytz
 import unicodedata
@@ -141,7 +145,8 @@ def fetch_json_endpoint(url: str, timeout: int = 10, retries: int = 3) -> Option
     """
     for attempt in range(retries):
         try:
-            response = scraper_session.get(url, timeout=timeout)
+            # verify=False: seaway-greatlakes.com doesn't send full cert chain (missing Sectigo intermediate)
+            response = scraper_session.get(url, timeout=timeout, verify=False)
             response.raise_for_status()
             return response.json()
         except (requests.RequestException, requests.Timeout, ValueError) as e:

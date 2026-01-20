@@ -87,8 +87,10 @@ uv pip install -r requirements.txt
 ### Health Endpoint (`/health`)
 
 Returns monitoring info:
+- `status`: "ok" or "error"
+- `status_message`: Human-readable status description
 - `last_updated`: Last time bridge data changed
-- `last_scrape`: Last scrape attempt timestamp
+- `last_scrape`: Last **successful** scrape timestamp (not attempts)
 - `last_scrape_had_changes`: Whether last scrape found changes
 - `statistics_last_updated`: Last time statistics were calculated (daily at 3 AM or manual)
 - `bridges_count`: Number of bridges in data
@@ -234,6 +236,7 @@ All 12 test files must pass (100%):
 - **JSON write errors**: Use atomic writes (temp file + rename)
 - **Unknown status**: Fall back to "Unknown", don't crash
 - **Missing data**: Use previous known state when appropriate
+- **SSL issues**: Using `verify=False` for seaway-greatlakes.com (missing Sectigo intermediate cert in chain)
 
 ## Performance Optimization
 

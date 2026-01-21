@@ -20,6 +20,15 @@ HEADING_NOT_AVAILABLE = 511  # AIS special value for heading not available
 COG_NOT_AVAILABLE = 360  # AIS special value for course over ground not available
 DIRECTION_MAX_VALID = 360  # Heading and COG valid range is 0-359.9 (exclusive upper bound)
 
+# Vessel idle threshold - vessels not moving for longer than this are filtered from API responses
+# 120 minutes allows showing vessels that are waiting, maneuvering, or temporarily stopped
+# Used by: /boats endpoint, /bridges responsible vessel attribution, WebSocket broadcasts
+VESSEL_IDLE_THRESHOLD_MINUTES = 120
+
+# AIS multipart message limit (ITU-R M.1371 standard)
+# Type 5/24 messages can span multiple fragments, but max is 5
+MAX_AIS_FRAGMENT_COUNT = 5
+
 # Region bounding boxes to track approaching vessels
 BOAT_REGIONS = {
     "welland": {
@@ -154,12 +163,16 @@ def get_vessel_type_info(type_code: Optional[int]) -> tuple[str, str]:
 
 def sanitize_vessel_name(name: Optional[str]) -> Optional[str]:
     """
-    Clean vessel name for JSON/display.
+    Clean vessel name/destination for JSON/display.
 
-    Removes control characters and normalizes whitespace.
+    Handles AIS 6-bit character field quirks:
+    - Trailing '@' characters are padding (6-bit zero) per ITU-R M.1371
+    - Garbage often appears after '@' terminator (discard it)
+    - Fields may be space-filled
+    - Short values are usually encoding artifacts
 
     Args:
-        name: Raw vessel name from AIS
+        name: Raw vessel name/destination from AIS
 
     Returns:
         Cleaned name or None if empty/invalid
@@ -168,9 +181,16 @@ def sanitize_vessel_name(name: Optional[str]) -> Optional[str]:
         return None
     # Remove non-printable and control characters
     name = ''.join(c for c in name if c.isprintable() and c not in '\t\n\r\v\f')
+    # Per AIS standard: '@' is terminator, discard it and any garbage after
+    if '@' in name:
+        name = name.split('@')[0]
     # Normalize whitespace and strip
     name = ' '.join(name.split()).strip()
     # Remove common placeholder values
-    if name in ('', '@', '@@@@@@@@@@@@@@@@@@@@', 'UNKNOWN'):
+    if name.upper() in ('', 'UNKNOWN', 'NIL', 'NONE', 'NULL', 'N/A', 'NA', 'TBD', 'TBA'):
+        return None
+    # Filter short garbage values (encoding artifacts like 'Y', 'N', etc.)
+    # Real names/destinations are at least 2 characters
+    if len(name) < 2:
         return None
     return name

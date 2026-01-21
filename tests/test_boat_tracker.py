@@ -93,11 +93,46 @@ class TestNameSanitization(unittest.TestCase):
         """AIS placeholder values return None"""
         self.assertIsNone(sanitize_vessel_name("@@@@@@@@@@@@@@@@@@@@"))
         self.assertIsNone(sanitize_vessel_name("UNKNOWN"))
+        self.assertIsNone(sanitize_vessel_name("unknown"))
+        self.assertIsNone(sanitize_vessel_name("NIL"))
+        self.assertIsNone(sanitize_vessel_name("N/A"))
+        self.assertIsNone(sanitize_vessel_name("TBD"))
 
     def test_empty_returns_none(self):
         """Empty string returns None"""
         self.assertIsNone(sanitize_vessel_name(""))
         self.assertIsNone(sanitize_vessel_name(None))
+
+    def test_single_char_garbage_filtered(self):
+        """Single characters are encoding artifacts, not real names"""
+        self.assertIsNone(sanitize_vessel_name("Y"))
+        self.assertIsNone(sanitize_vessel_name("N"))
+        self.assertIsNone(sanitize_vessel_name("X"))
+        self.assertIsNone(sanitize_vessel_name("@"))
+
+    def test_at_terminator_strips_garbage(self):
+        """Per AIS standard, @ terminates field - discard it and garbage after"""
+        self.assertIsNone(sanitize_vessel_name("Y@"))
+        self.assertIsNone(sanitize_vessel_name("@Y"))
+        self.assertIsNone(sanitize_vessel_name("Y@@@@@@@@@@"))
+        self.assertEqual(sanitize_vessel_name("ABC@XYZ"), "ABC")
+        self.assertEqual(sanitize_vessel_name("MONTREAL@@@@@"), "MONTREAL")
+
+    def test_valid_destinations_pass(self):
+        """Real port codes and names pass through"""
+        self.assertEqual(sanitize_vessel_name("MTL"), "MTL")
+        self.assertEqual(sanitize_vessel_name("MONTREAL"), "MONTREAL")
+        self.assertEqual(sanitize_vessel_name("DEHAM-CAMTR"), "DEHAM-CAMTR")
+        self.assertEqual(sanitize_vessel_name("MONTREAL#57"), "MONTREAL#57")
+        self.assertEqual(sanitize_vessel_name("US"), "US")
+        self.assertEqual(sanitize_vessel_name("NY"), "NY")
+
+    def test_space_padding_stripped(self):
+        """Space-padded fields (common in AIS) get trimmed to None or clean value"""
+        self.assertIsNone(sanitize_vessel_name("                    "))  # 20 spaces
+        self.assertIsNone(sanitize_vessel_name("Y                   "))  # Y + 19 spaces -> "Y" -> filtered
+        self.assertEqual(sanitize_vessel_name("MTL                 "), "MTL")  # MTL + spaces
+        self.assertEqual(sanitize_vessel_name("  MONTREAL  "), "MONTREAL")
 
 
 class TestMMSIValidation(unittest.TestCase):

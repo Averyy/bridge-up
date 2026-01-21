@@ -31,6 +31,7 @@ from shared import (
     bridges_file_lock
 )
 from config import BRIDGE_KEYS, BRIDGE_DETAILS
+from boat_config import VESSEL_IDLE_THRESHOLD_MINUTES
 from loguru import logger
 
 # Boat tracker (initialized in lifespan if enabled)
@@ -619,7 +620,7 @@ async def websocket_endpoint(websocket: WebSocket):
             # Inject responsible vessels
             vessels = []
             if boat_tracker:
-                vessels = boat_tracker.registry.get_moving_vessels(max_idle_minutes=30)
+                vessels = boat_tracker.registry.get_moving_vessels(max_idle_minutes=VESSEL_IDLE_THRESHOLD_MINUTES)
 
             for bridge_id, bridge_data in data.get("bridges", {}).items():
                 live = bridge_data.get("live", {})
@@ -658,7 +659,7 @@ async def broadcast(data: dict):
     # Get vessels for responsible boat calculation
     vessels = []
     if boat_tracker:
-        vessels = boat_tracker.registry.get_moving_vessels(max_idle_minutes=30)
+        vessels = boat_tracker.registry.get_moving_vessels(max_idle_minutes=VESSEL_IDLE_THRESHOLD_MINUTES)
 
     # Calculate responsible vessels for each bridge
     bridges = broadcast_data.get("bridges", {})
@@ -718,7 +719,7 @@ def get_bridges(request: Request, response: Response):
     # Get vessels for responsible boat calculation
     vessels = []
     if boat_tracker:
-        vessels = boat_tracker.registry.get_moving_vessels(max_idle_minutes=30)
+        vessels = boat_tracker.registry.get_moving_vessels(max_idle_minutes=VESSEL_IDLE_THRESHOLD_MINUTES)
 
     # Calculate responsible vessels for each bridge
     for bridge_id, bridge_data in bridges.items():
@@ -761,7 +762,7 @@ def get_bridge(bridge_id: str, request: Request, response: Response):
             # Calculate responsible vessel
             vessels = []
             if boat_tracker:
-                vessels = boat_tracker.registry.get_moving_vessels(max_idle_minutes=30)
+                vessels = boat_tracker.registry.get_moving_vessels(max_idle_minutes=VESSEL_IDLE_THRESHOLD_MINUTES)
 
             live = bridge.get("live", {})
             status = live.get("status", "Unknown")

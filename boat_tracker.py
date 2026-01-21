@@ -22,9 +22,11 @@ from boat_config import (
     COG_NOT_AVAILABLE,
     DIRECTION_MAX_VALID,
     HEADING_NOT_AVAILABLE,
+    MAX_AIS_FRAGMENT_COUNT,
     MMSI_MAX,
     MMSI_MIN,
     SPEED_NOT_AVAILABLE,
+    VESSEL_IDLE_THRESHOLD_MINUTES,
     get_vessel_region,
     get_vessel_type_info,
     sanitize_vessel_name,
@@ -206,18 +208,18 @@ class VesselRegistry:
         distance = (lat_diff ** 2 + lon_diff ** 2) ** 0.5
         return distance > threshold_m
 
-    def get_moving_vessels(self, max_idle_minutes: int = 30) -> list[dict]:
+    def get_moving_vessels(self, max_idle_minutes: int = VESSEL_IDLE_THRESHOLD_MINUTES) -> list[dict]:
         """
         Get vessels that moved within the specified time window.
 
-        Filters out anchored/docked vessels. Logic: if a vessel hasn't moved
-        in 30+ min, it's likely anchored - not actively transiting. Vessels
-        waiting for a bridge won't wait 30 min (closures are ~10-20 min).
+        Filters out anchored/docked vessels. The default threshold (120 min)
+        allows showing vessels that are waiting, maneuvering, or temporarily
+        stopped while still filtering truly inactive vessels.
 
         This is a sync method - no await needed.
 
         Args:
-            max_idle_minutes: Maximum minutes since last movement
+            max_idle_minutes: Maximum minutes since last movement (default: VESSEL_IDLE_THRESHOLD_MINUTES)
 
         Returns:
             List of vessel dicts
@@ -329,6 +331,12 @@ class UDPProtocol(asyncio.DatagramProtocol):
             fragment_num = int(parts[2])
             msg_id = parts[3]  # Empty for single-part
             channel = parts[4]
+
+            # Validate fragment counts per AIS standard (prevents memory exhaustion attack)
+            if not (1 <= fragment_count <= MAX_AIS_FRAGMENT_COUNT):
+                return
+            if not (1 <= fragment_num <= fragment_count):
+                return
 
             if fragment_count == 1:
                 # Single-part message - decode immediately
@@ -759,7 +767,7 @@ class BoatTracker:
             Dict with vessel data and status info
         """
         now = datetime.now(timezone.utc)
-        moving = self.registry.get_moving_vessels(max_idle_minutes=30)
+        moving = self.registry.get_moving_vessels(max_idle_minutes=VESSEL_IDLE_THRESHOLD_MINUTES)
         udp_status = self.registry.get_udp_status()
 
         # Build status object
@@ -803,5 +811,5 @@ class BoatTracker:
         }
 
     def get_vessel_count(self) -> int:
-        """Get count of currently tracked moving vessels."""
-        return len(self.registry.get_moving_vessels(max_idle_minutes=30))
+        """Get count of currently tracked vessels."""
+        return len(self.registry.get_moving_vessels(max_idle_minutes=VESSEL_IDLE_THRESHOLD_MINUTES))

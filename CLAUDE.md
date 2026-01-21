@@ -354,7 +354,7 @@ AISHub API (HTTP) ────┘
 
 ### Filtering
 - Only vessels in monitored regions (welland/montreal bounding boxes) - instantly removed when they leave
-- Only vessels that moved in last 30 minutes (filters out anchored/docked vessels - if stationary 30+ min, likely not actively transiting; vessels waiting for bridges don't wait that long since closures are ~10-20 min)
+- Only vessels that moved in last 120 minutes (filters out anchored/docked vessels while allowing time for vessels waiting, maneuvering, or temporarily stopped)
 - Only ship MMSIs (200M-799M range)
 - Stale vessels removed after 15 minutes (no data received)
 

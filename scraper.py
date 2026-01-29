@@ -60,6 +60,48 @@ scraper_session.headers.update({
 })
 
 
+def periods_overlap(
+    c_time_str: Optional[str],
+    c_end_str: Optional[str],
+    m_start: datetime,
+    m_end: datetime
+) -> bool:
+    """
+    Check if two time periods overlap.
+
+    Used to merge Seaway closures with maintenance periods. Seaway provides
+    accurate times, maintenance provides descriptions - we merge by detecting
+    overlapping periods.
+
+    Args:
+        c_time_str: Closure start time as ISO string (or None)
+        c_end_str: Closure end time as ISO string (or None)
+        m_start: Maintenance period start (timezone-aware datetime)
+        m_end: Maintenance period end (timezone-aware datetime)
+
+    Returns:
+        True if the periods overlap, False otherwise (including on parse errors)
+    """
+    try:
+        # Handle None start time - can't determine overlap
+        if c_time_str is None:
+            return False
+
+        c_time = datetime.fromisoformat(c_time_str) if isinstance(c_time_str, str) else c_time_str
+
+        # Handle None end time - check if start falls within maintenance window
+        if c_end_str is None:
+            return m_start <= c_time < m_end
+
+        c_end = datetime.fromisoformat(c_end_str) if isinstance(c_end_str, str) else c_end_str
+
+        # Two periods overlap if neither ends before the other starts
+        return c_time < m_end and m_start < c_end
+    except (ValueError, TypeError) as e:
+        logger.debug(f"periods_overlap parse error: {e} (c_time={c_time_str}, c_end={c_end_str})")
+        return False
+
+
 def parse_date(date_str: str) -> Tuple[Optional[datetime], bool]:
     """
     Parse date/time strings from bridge data into timezone-aware datetime objects.
@@ -589,24 +631,44 @@ def update_json_and_broadcast(bridges: List[Dict[str, Any]], region: str, shortf
             for c in bridge['upcoming_closures']
         ])
 
-        # Merge maintenance periods into upcoming_closures
-        for period in maintenance_periods:
-            # Check for duplicates (same start/end times)
-            is_duplicate = any(
-                c.get('type') == 'Construction' and
-                c.get('time') == period['start'].isoformat() and
-                c.get('end_time') == period['end'].isoformat()
-                for c in closures
-            )
+        # Merge maintenance data into upcoming_closures
+        # Strategy: Seaway has accurate times (07:00-17:00), maintenance has descriptions
+        # - If Seaway closure has no description and overlaps maintenance → add description
+        # - If maintenance period has no overlapping Seaway closure → add as new entry
+        # Note: Uses module-level periods_overlap() for testability
+        if maintenance_periods:
+            # Track which maintenance periods overlap with Seaway (to avoid duplicates)
+            merged_maintenance_indices = set()
 
-            if not is_duplicate:
+            # Enrich Seaway closures with maintenance descriptions
+            for closure in closures:
+                if closure.get('type') != 'Construction':
+                    continue
+
+                # Find first overlapping maintenance period (if multiple overlap, use first match)
+                # This is intentional: maintenance periods for the same closure should have
+                # identical descriptions, so we only need one match
+                for i, period in enumerate(maintenance_periods):
+                    if periods_overlap(closure.get('time'), closure.get('end_time'), period['start'], period['end']):
+                        # Mark as merged (even if Seaway already has description) to avoid duplicates
+                        merged_maintenance_indices.add(i)
+                        # Only add description if Seaway doesn't have one
+                        if not closure.get('description'):
+                            closure['description'] = period.get('description') or 'Scheduled maintenance'
+                        break
+
+            # Add maintenance periods that didn't overlap with any Seaway closure
+            # (e.g., daily closures that Seaway API doesn't have yet)
+            for i, period in enumerate(maintenance_periods):
+                if i in merged_maintenance_indices:
+                    continue  # Already merged into a Seaway closure
                 closures.append({
                     'type': 'Construction',
                     'time': period['start'].isoformat(),
                     'end_time': period['end'].isoformat(),
                     'longer': False,
                     'expected_duration_minutes': None,
-                    'description': period.get('description', 'Scheduled maintenance')
+                    'description': period.get('description') or 'Scheduled maintenance'
                 })
 
         # CRITICAL: Re-sort by time (iOS grouping depends on this)

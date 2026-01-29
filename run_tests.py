@@ -50,7 +50,10 @@ def main():
         ("tests/test_predictions.py", "Prediction Tests (iOS logic moved to backend)"),
         ("tests/test_health.py", "Health Tests (monitoring status logic)"),
         ("tests/test_boat_tracker.py", "Boat Tracker Tests (vessel filtering logic)"),
-        ("tests/test_responsible_boat.py", "Responsible Boat Tests (closure attribution)")
+        ("tests/test_responsible_boat.py", "Responsible Boat Tests (closure attribution)"),
+        ("tests/test_maintenance.py", "Maintenance Runtime Tests (override system)"),
+        ("tests/test_maintenance_scraper.py", "Maintenance Scraper Tests (HTML parsing)"),
+        ("tests/test_maintenance_integration.py", "Maintenance Integration Tests (scraper override logic)")
     ]
     
     passed = 0

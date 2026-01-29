@@ -27,3 +27,7 @@ slowapi==0.1.9
 
 # AIS decoding (boat tracking)
 pyais==2.14.0
+
+# HTML parsing (maintenance scraper)
+beautifulsoup4==4.12.3
+python-dateutil==2.9.0

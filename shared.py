@@ -7,11 +7,15 @@ This module contains:
 - Thread-safe state management for bridge data
 - WebSocket client tracking
 - Event loop reference for sync->async broadcasting
+- Utility functions (atomic_write_json)
 """
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 import threading
 import asyncio
+import tempfile
+import json
+import os
 import pytz
 
 # Timezone for Toronto/Eastern time
@@ -56,3 +60,27 @@ bridges_file_lock = threading.Lock()
 
 # File lock for history file operations (prevents race with max_instances > 1)
 history_file_lock = threading.Lock()
+
+
+def atomic_write_json(path: str, data: Any) -> None:
+    """
+    Atomically write JSON data to file (crash-safe).
+
+    Writes to temp file first, then renames. This prevents corruption
+    if the process crashes mid-write.
+    """
+    dir_path = os.path.dirname(path) or "."
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile('w', dir=dir_path, delete=False, suffix='.tmp') as f:
+            json.dump(data, f, default=str, indent=2)
+            temp_path = f.name
+        os.replace(temp_path, path)  # Atomic on POSIX
+    except Exception:
+        # Clean up temp file on failure
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+        raise

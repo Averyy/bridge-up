@@ -63,3 +63,37 @@ BRIDGE_DETAILS = {
         'Larocque Bridge (Salaberry-de-Valleyfield)': {'lat': 45.22588000852819, 'lng': -74.11479220520631}
     }
 }
+
+# Maintenance page bridge name mapping (website names -> our bridge IDs)
+# Used by maintenance_scraper.py to parse the Seaway maintenance page
+BRIDGE_NAME_MAP = {
+    # St. Catharines
+    "Lakeshore Road": "SCT_LakeshoreRd",
+    "Carlton Street": "SCT_CarltonSt",
+    "Queenston Street": "SCT_QueenstonSt",
+    "Glendale Avenue": "SCT_GlendaleAve",
+    "Highway 20": "SCT_Highway",
+
+    # Port Colborne
+    "Main Street": "PC_MainSt",
+    "Mellanby Avenue": "PC_MellanbyAve",
+    "Clarence Street": "PC_ClarenceSt",
+
+    # Salaberry / Beauharnois
+    "Saint-Louis-de-Gonzague": "SBS_StLouisdeGonzagueBridge",
+    "St-Louis-de-Gonzague": "SBS_StLouisdeGonzagueBridge",  # Alternative spelling
+    "Larocque Bridge": "SBS_LarocqueBridgeSalaberryde",
+
+    # Montreal South Shore
+    "Victoria Bridge Downstream": "MSS_VictoriaBridgeDownstream",
+    "Victoria Bridge Upstream": "MSS_VictoriaBridgeUpstreamCycl",
+    "Sainte-Catherine": "MSS_SainteCatherineRcroParcBr",
+    "RécréoParc": "MSS_SainteCatherineRcroParcBr",  # Alternative name
+
+    # Kahnawake
+    "CP Railway Bridge 7A": "K_CPRailwayBridgeA",
+    "CP Railway Bridge 7B": "K_CPRailwayBridgeB",
+}
+
+# Data file paths (centralized for consistency)
+MAINTENANCE_FILE = "data/maintenance.json"

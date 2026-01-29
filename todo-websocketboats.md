@@ -718,3 +718,197 @@ websocat wss://api.bridgeup.app/ws
 4. Deploy to staging, test with iOS TestFlight
 5. Monitor health endpoint for subscriber counts
 6. Verify boats updates only arrive when data changes (not periodically)
+7. Provide WebSocket API documentation to website and iOS developers (see below)
+
+---
+
+## Developer Documentation
+
+Provide this to website and iOS developers for client updates.
+
+---
+
+### WebSocket API v2 - Channel Subscriptions
+
+#### Breaking Change Summary
+
+The WebSocket endpoint (`wss://api.bridgeup.app/ws`) now uses a subscription model. **Clients must explicitly subscribe to receive data.**
+
+| Before | After |
+|--------|-------|
+| Connect → immediately receive bridges data | Connect → nothing (must subscribe first) |
+| Bridges only | Bridges and/or boats |
+| Raw JSON payload | Typed messages with `{"type": "...", "data": {...}}` |
+
+---
+
+#### Connection Flow
+
+```
+1. Connect to wss://api.bridgeup.app/ws
+2. Send subscribe message
+3. Receive confirmation + current data
+4. Receive push updates when data changes
+```
+
+---
+
+#### Message Format
+
+**Client → Server**
+
+```json
+{"action": "subscribe", "channels": ["bridges"]}
+{"action": "subscribe", "channels": ["boats"]}
+{"action": "subscribe", "channels": ["bridges", "boats"]}
+{"action": "subscribe", "channels": []}
+```
+
+- `channels` is an array of channel names
+- Valid channels: `"bridges"`, `"boats"`
+- Each subscribe **replaces** the previous subscription
+- Empty array unsubscribes from all (connection stays open)
+
+**Server → Client**
+
+All messages have a `type` field:
+
+```json
+{"type": "subscribed", "channels": ["bridges", "boats"]}
+{"type": "bridges", "data": {...}}
+{"type": "boats", "data": {...}}
+```
+
+---
+
+#### Payload Structures
+
+**`type: "bridges"`**
+
+```json
+{
+  "type": "bridges",
+  "data": {
+    "last_updated": "2026-01-22T15:30:00-05:00",
+    "available_bridges": [
+      {"id": "PC_ClarenceSt", "name": "Clarence St.", "region_short": "PC", "region": "Port Colborne"}
+    ],
+    "bridges": {
+      "PC_ClarenceSt": {
+        "static": {
+          "name": "Clarence St.",
+          "region": "Port Colborne",
+          "region_short": "PC",
+          "coordinates": {"lat": 42.88, "lng": -79.25},
+          "statistics": {...}
+        },
+        "live": {
+          "status": "Open",
+          "last_updated": "2026-01-22T15:20:00-05:00",
+          "predicted": null,
+          "upcoming_closures": [],
+          "responsible_vessel_mmsi": null
+        }
+      }
+    }
+  }
+}
+```
+
+**`type: "boats"`**
+
+```json
+{
+  "type": "boats",
+  "data": {
+    "last_updated": "2026-01-22T15:30:00-05:00",
+    "vessel_count": 12,
+    "vessels": [
+      {
+        "mmsi": 316001635,
+        "name": "RT HON PAUL J MARTIN",
+        "type_name": "Cargo",
+        "type_category": "cargo",
+        "position": {"lat": 42.92, "lon": -79.24},
+        "heading": 10,
+        "course": 8.9,
+        "speed_knots": 7.2,
+        "destination": "MONTREAL",
+        "dimensions": {"length": 225, "width": 24},
+        "last_seen": "2026-01-22T15:29:58-05:00",
+        "source": "udp:udp1",
+        "region": "welland"
+      }
+    ]
+  }
+}
+```
+
+---
+
+#### Update Frequency
+
+| Channel | When Pushed |
+|---------|-------------|
+| `bridges` | When any bridge status changes (few times per day per bridge) |
+| `boats` | When vessel data changes (~every 30-60 seconds based on AIS data) |
+
+Both channels use **push-on-change** - no polling needed, no redundant data sent.
+
+---
+
+#### Example Session
+
+```
+→ Client connects
+  (nothing received)
+
+→ Client sends: {"action": "subscribe", "channels": ["bridges"]}
+← Server sends: {"type": "subscribed", "channels": ["bridges"]}
+← Server sends: {"type": "bridges", "data": {...}}
+
+  (bridge status changes later)
+← Server sends: {"type": "bridges", "data": {...}}
+
+→ Client sends: {"action": "subscribe", "channels": ["bridges", "boats"]}
+← Server sends: {"type": "subscribed", "channels": ["bridges", "boats"]}
+← Server sends: {"type": "bridges", "data": {...}}
+← Server sends: {"type": "boats", "data": {...}}
+
+  (vessel position updates ~30-60s later)
+← Server sends: {"type": "boats", "data": {...}}
+```
+
+---
+
+#### Migration Checklist
+
+- [ ] Update WebSocket message handler to parse `type` field first
+- [ ] Send subscribe message immediately after connection opens
+- [ ] Handle `"subscribed"` confirmation message
+- [ ] Handle `"bridges"` and `"boats"` message types
+- [ ] Remove HTTP polling for boats if using WebSocket boats channel
+
+---
+
+#### HTTP Endpoints (Unchanged)
+
+These remain available as fallbacks:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /bridges` | All bridge data |
+| `GET /bridges/{id}` | Single bridge |
+| `GET /boats` | All vessel positions |
+
+---
+
+#### Testing
+
+```bash
+# Using websocat
+websocat wss://api.bridgeup.app/ws
+
+# Then type:
+{"action": "subscribe", "channels": ["bridges", "boats"]}
+```

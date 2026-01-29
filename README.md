@@ -12,6 +12,7 @@ Backend API powering the [Bridge Up iOS app](https://bridgeup.app). Never wait a
 
 - 🌉 **15 bridges** across 5 regions monitored in real-time
 - 🚢 **Vessel tracking:** real-time ship positions via AIS
+- 🔧 **Maintenance scraper:** auto-detects scheduled closures from Seaway website
 - ⚡ **Concurrent scraping:** all bridges in ~0.7 seconds
 - 📊 **Predictive intelligence:** reopening estimates based on 300+ closures per bridge
 - 🔄 **Real-time updates:** every 20-30 seconds via WebSocket
@@ -152,6 +153,7 @@ curl https://api.bridgeup.app/boats
 | Variable | Description |
 |----------|-------------|
 | `AISHUB_API_KEY` | AISHub API key (optional, disables polling if not set) |
+| `ENABLE_MAINTENANCE_SCRAPER` | Enable scheduled maintenance scraper (default: `true`) |
 
 Send AIS NMEA sentences to the server's IP on port 10110. Supports up to 2 UDP sources (auto-assigned as `udp1`, `udp2`).
 
@@ -196,6 +198,8 @@ St. Lawrence Seaway API → Python Scraper → JSON Storage → FastAPI → WebS
 | `boat_tracker.py` | Real-time vessel tracking (AIS) |
 | `boat_config.py` | Vessel regions and type mappings |
 | `responsible_boat.py` | Closure attribution (which vessel caused it) |
+| `maintenance.py` | Maintenance override runtime logic |
+| `maintenance_scraper.py` | Scheduled closure scraper (Seaway website) |
 
 ## 🚀 Quick Start
 
@@ -243,6 +247,7 @@ Pushing to `main` triggers GitHub Actions:
 - **6 AM – 10 PM:** Scrapes every 20 seconds
 - **10 PM – 6 AM:** Scrapes every 30 seconds
 - **3 AM daily:** Statistics recalculation
+- **6 AM daily:** Maintenance page scraper (when enabled)
 
 ## 🧪 Testing
 

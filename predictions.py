@@ -16,9 +16,8 @@ Prediction meanings by status:
 """
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
-import pytz
 
-TIMEZONE = pytz.timezone('America/Toronto')
+from shared import TIMEZONE
 
 # Duration constants from seaway site (hardcoded in iOS, now centralized here)
 # Format: {vessel_type_lowercase: {longer_flag: duration_minutes}}

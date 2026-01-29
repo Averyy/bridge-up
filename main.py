@@ -24,6 +24,7 @@ import copy
 import json
 import asyncio
 import os
+import threading
 
 import shared
 from shared import (
@@ -32,10 +33,20 @@ from shared import (
 )
 from config import BRIDGE_KEYS, BRIDGE_DETAILS
 from boat_config import VESSEL_IDLE_THRESHOLD_MINUTES
+from maintenance import get_maintenance_info, validate_maintenance_file
 from loguru import logger
 
 # Boat tracker (initialized in lifespan if enabled)
 boat_tracker = None
+
+# Maintenance scraper control (seasonal - winter only)
+ENABLE_MAINTENANCE_SCRAPER = os.getenv("ENABLE_MAINTENANCE_SCRAPER", "true").lower() == "true"
+
+# Startup maintenance scraper thread (tracked for status monitoring)
+_maintenance_startup_thread: Optional[threading.Thread] = None
+
+# Lock to prevent concurrent maintenance scraper runs (startup thread + scheduled job)
+_maintenance_scraper_lock = threading.Lock()
 
 
 def get_real_client_ip(request: Request) -> str:
@@ -120,17 +131,34 @@ class RootResponse(BaseModel):
     }
 
 
+class MaintenanceInfo(BaseModel):
+    """
+    Maintenance override system status.
+
+    Note: last_scrape_success and last_scrape_attempt/last_scrape_error are mutually exclusive.
+    On successful scrape: only last_scrape_success is set.
+    On failed scrape: last_scrape_attempt and last_scrape_error are set (no last_scrape_success).
+    """
+    file_exists: bool = Field(description="Whether maintenance.json exists")
+    closure_count: int = Field(description="Number of bridge closures defined")
+    source_url: Optional[str] = Field(default=None, description="URL of maintenance data source")
+    last_scrape_success: Optional[str] = Field(default=None, description="Last successful scrape timestamp (mutually exclusive with last_scrape_attempt)")
+    last_scrape_attempt: Optional[str] = Field(default=None, description="Last failed scrape attempt timestamp (mutually exclusive with last_scrape_success)")
+    last_scrape_error: Optional[str] = Field(default=None, description="Last scrape error message (only present with last_scrape_attempt)")
+
+
 class HealthResponse(BaseModel):
     """Health check response."""
     status: str = Field(description="API status: ok, warning, or error", examples=["ok"])
     status_message: str = Field(description="Human-readable status explanation")
     last_updated: Optional[str] = Field(description="Last time bridge data changed")
-    last_scrape: Optional[str] = Field(description="Last scrape attempt timestamp")
+    last_scrape: Optional[str] = Field(description="Last successful scrape timestamp")
     last_scrape_had_changes: bool = Field(description="Whether last scrape found changes")
     statistics_last_updated: Optional[str] = Field(description="Last time statistics were calculated")
     bridges_count: int = Field(description="Number of bridges in data")
     boats_count: int = Field(description="Number of vessels currently tracked")
     websocket_clients: int = Field(description="Connected WebSocket clients")
+    maintenance: Optional[MaintenanceInfo] = Field(default=None, description="Maintenance override system status")
 
     model_config = {
         "json_schema_extra": {
@@ -143,7 +171,13 @@ class HealthResponse(BaseModel):
                 "statistics_last_updated": "2025-12-24T03:00:00-05:00",
                 "bridges_count": 15,
                 "boats_count": 4,
-                "websocket_clients": 3
+                "websocket_clients": 3,
+                "maintenance": {
+                    "file_exists": True,
+                    "closure_count": 2,
+                    "source_url": "https://greatlakes-seaway.com/en/for-our-communities/infrastructure-maintenance/",
+                    "last_scrape_success": "2025-12-24T06:00:00-05:00"
+                }
             }
         }
     }
@@ -210,6 +244,7 @@ class UpcomingClosure(BaseModel):
     longer: Optional[bool] = Field(default=False, description="Longer than normal closure")
     end_time: Optional[str] = Field(default=None, description="End time for construction")
     expected_duration_minutes: Optional[int] = Field(default=None, description="Expected duration")
+    description: Optional[str] = Field(default=None, description="Human-readable closure reason (for maintenance)")
 
 
 class LiveBridgeData(BaseModel):
@@ -508,6 +543,26 @@ def daily_statistics_wrapper():
         logger.error(f"Daily statistics failed: {str(e)[:100]}")
 
 
+def maintenance_scraper_wrapper():
+    """
+    Wrapper for maintenance scraper to handle exceptions.
+
+    Uses a lock to prevent concurrent runs (startup thread + 6 AM scheduled job).
+    """
+    # Non-blocking acquire - skip if another instance is already running
+    if not _maintenance_scraper_lock.acquire(blocking=False):
+        logger.debug("Maintenance scraper already running, skipping")
+        return
+
+    try:
+        from maintenance_scraper import scrape_maintenance_page
+        scrape_maintenance_page()
+    except Exception as e:
+        logger.error(f"Maintenance scraper failed: {str(e)[:100]}")
+    finally:
+        _maintenance_scraper_lock.release()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -534,6 +589,37 @@ async def lifespan(app: FastAPI):
 
     # Daily statistics update at 3 AM
     scheduler.add_job(daily_statistics_wrapper, 'cron', hour=3, minute=0)
+
+    # Schedule maintenance page scraping (seasonal - winter only)
+    if ENABLE_MAINTENANCE_SCRAPER:
+        scheduler.add_job(
+            maintenance_scraper_wrapper,
+            'cron',
+            hour=6,
+            minute=0,
+            id='maintenance_scraper',
+            max_instances=1,
+            coalesce=True
+        )
+        # Run once on startup (non-blocking) so we don't wait until 6 AM
+        global _maintenance_startup_thread
+        _maintenance_startup_thread = threading.Thread(
+            target=maintenance_scraper_wrapper, daemon=True, name="maintenance-startup"
+        )
+        _maintenance_startup_thread.start()
+        logger.info("Maintenance scraper enabled (runs daily 6:00 AM + on startup)")
+    else:
+        logger.info("Maintenance scraper disabled (off-season)")
+
+    # Validate maintenance.json on startup (info-level if missing, since scraper thread may not have created it yet)
+    maintenance_errors = validate_maintenance_file()
+    if maintenance_errors:
+        for error in maintenance_errors:
+            # File not found is expected on first startup before scraper completes
+            if "not found" in error.lower():
+                logger.info(f"maintenance.json: {error} (will be created by scraper)")
+            else:
+                logger.warning(f"maintenance.json: {error}")
 
     scheduler.start()
     logger.info("Scheduler started")
@@ -935,7 +1021,8 @@ def health(request: Request, response: Response):
         "statistics_last_updated": shared.statistics_last_updated.isoformat() if shared.statistics_last_updated else None,
         "bridges_count": bridges_count,
         "boats_count": boats_count,
-        "websocket_clients": len(connected_clients)
+        "websocket_clients": len(connected_clients),
+        "maintenance": get_maintenance_info()
     }
 
 

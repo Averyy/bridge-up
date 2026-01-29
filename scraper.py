@@ -28,6 +28,7 @@ import threading
 from config import BRIDGE_KEYS, BRIDGE_DETAILS, OLD_JSON_ENDPOINT, NEW_JSON_ENDPOINT
 from stats_calculator import calculate_bridge_statistics
 from predictions import calculate_prediction, add_expected_duration_to_closures, parse_datetime
+from maintenance import get_maintenance_for_bridge, load_maintenance_data
 from loguru import logger
 
 # Import shared state
@@ -37,7 +38,8 @@ from shared import (
     last_known_state, last_known_state_lock,
     region_failures, region_failures_lock,
     endpoint_cache, endpoint_cache_lock,
-    bridges_file_lock, history_file_lock
+    bridges_file_lock, history_file_lock,
+    atomic_write_json
 )
 
 # Configure logger for cleaner output
@@ -56,20 +58,6 @@ scraper_session = requests.Session()
 scraper_session.headers.update({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 })
-
-
-def atomic_write_json(path: str, data: Any) -> None:
-    """
-    Atomically write JSON data to file (crash-safe).
-
-    Writes to temp file first, then renames. This prevents corruption
-    if the process crashes mid-write.
-    """
-    dir_path = os.path.dirname(path) or "."
-    with tempfile.NamedTemporaryFile('w', dir=dir_path, delete=False, suffix='.tmp') as f:
-        json.dump(data, f, default=str, indent=2)
-        temp_path = f.name
-    os.replace(temp_path, path)  # Atomic on POSIX
 
 
 def parse_date(date_str: str) -> Tuple[Optional[datetime], bool]:
@@ -568,9 +556,26 @@ def update_json_and_broadcast(bridges: List[Dict[str, Any]], region: str, shortf
     current_time = datetime.now(TIMEZONE)
     updates_made = False
 
+    # Load maintenance data ONCE for all bridges (avoids repeated file reads/locks)
+    maintenance_data = load_maintenance_data(_cached=True)
+
     for bridge in bridges:
         doc_id = sanitize_document_id(shortform, bridge['name'])
         interpreted = interpret_bridge_status(bridge)
+
+        # Get maintenance info for this bridge (using pre-loaded data)
+        active_maintenance, maintenance_periods = get_maintenance_for_bridge(
+            doc_id, current_time, _preloaded_data=maintenance_data
+        )
+
+        # Override "Unknown" status with "Construction" during maintenance windows
+        status = interpreted['status']
+        maintenance_overridden = False
+
+        if status == "Unknown" and active_maintenance:
+            status = "Construction"
+            maintenance_overridden = True
+            logger.info(f"{doc_id}: Unknown -> Construction (maintenance override)")
 
         # Serialize upcoming_closures with expected_duration_minutes
         closures = add_expected_duration_to_closures([
@@ -578,10 +583,34 @@ def update_json_and_broadcast(bridges: List[Dict[str, Any]], region: str, shortf
                 'type': c['type'],
                 'time': c['time'].isoformat() if isinstance(c['time'], datetime) else c['time'],
                 'longer': c['longer'],
-                'end_time': c.get('end_time').isoformat() if isinstance(c.get('end_time'), datetime) else c.get('end_time')
+                'end_time': c.get('end_time').isoformat() if isinstance(c.get('end_time'), datetime) else c.get('end_time'),
+                'description': c.get('description')  # Preserve description if present
             }
             for c in bridge['upcoming_closures']
         ])
+
+        # Merge maintenance periods into upcoming_closures
+        for period in maintenance_periods:
+            # Check for duplicates (same start/end times)
+            is_duplicate = any(
+                c.get('type') == 'Construction' and
+                c.get('time') == period['start'].isoformat() and
+                c.get('end_time') == period['end'].isoformat()
+                for c in closures
+            )
+
+            if not is_duplicate:
+                closures.append({
+                    'type': 'Construction',
+                    'time': period['start'].isoformat(),
+                    'end_time': period['end'].isoformat(),
+                    'longer': False,
+                    'expected_duration_minutes': None,
+                    'description': period.get('description', 'Scheduled maintenance')
+                })
+
+        # CRITICAL: Re-sort by time (iOS grouping depends on this)
+        closures.sort(key=lambda c: c.get('time', ''))
 
         # Get coordinates from config
         coords = BRIDGE_DETAILS.get(region, {}).get(bridge['name'], {})
@@ -614,7 +643,7 @@ def update_json_and_broadcast(bridges: List[Dict[str, Any]], region: str, shortf
                 }
             },
             'live': {
-                'status': interpreted['status'],
+                'status': status,
                 'last_updated': current_time.isoformat(),
                 'upcoming_closures': closures
             }
@@ -653,13 +682,14 @@ def update_json_and_broadcast(bridges: List[Dict[str, Any]], region: str, shortf
             if new_live_compare != old_live_compare:
                 updates_made = True
 
-                # Status changed - update history
-                old_raw = bridge['raw_status']
-                update_history(
-                    doc_id,
-                    interpret_tracked_status(old_raw),
-                    current_time
-                )
+                # Status changed - update history (skip for maintenance overrides)
+                if not maintenance_overridden:
+                    old_raw = bridge['raw_status']
+                    update_history(
+                        doc_id,
+                        interpret_tracked_status(old_raw),
+                        current_time
+                    )
 
                 # Calculate prediction
                 prediction = calculate_prediction(

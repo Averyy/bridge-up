@@ -264,12 +264,15 @@ def extract_closures_from_html(html: str) -> List[Dict]:
                     description = sanitize_text(text.replace('Work Summary:', ''))
                     # Truncate if too long (keep first sentence)
                     if '.' in description:
-                        description = description.split('.')[0] + '.'
+                        description = description.split('.')[0]
                     break
 
         # Capitalize first character for consistency
         if description and len(description) > 0:
             description = description[0].upper() + description[1:]
+
+        # Remove trailing period for consistency (iOS renders as plain text)
+        description = description.rstrip('.')
 
         # Extract all closure information
         periods = []

@@ -592,11 +592,11 @@ def update_json_and_broadcast(bridges: List[Dict[str, Any]], region: str, shortf
         from main import broadcast_sync, AVAILABLE_BRIDGES
     except ImportError:
         # Running standalone (e.g., for testing)
-        broadcast_sync = lambda x: None
+        broadcast_sync = lambda data, changed_bridge_ids=None: None
         AVAILABLE_BRIDGES = []
 
     current_time = datetime.now(TIMEZONE)
-    updates_made = False
+    changed_bridge_ids: set = set()  # Track which bridges changed for region filtering
 
     # Load maintenance data ONCE for all bridges (avoids repeated file reads/locks)
     maintenance_data = load_maintenance_data(_cached=True)
@@ -717,7 +717,7 @@ def update_json_and_broadcast(bridges: List[Dict[str, Any]], region: str, shortf
 
         if doc_id_not_cached:
             # First time seeing this bridge
-            updates_made = True
+            changed_bridge_ids.add(doc_id)
 
             # Calculate prediction
             prediction = calculate_prediction(
@@ -742,7 +742,7 @@ def update_json_and_broadcast(bridges: List[Dict[str, Any]], region: str, shortf
                                if k not in ('last_updated', 'predicted')}
 
             if new_live_compare != old_live_compare:
-                updates_made = True
+                changed_bridge_ids.add(doc_id)
 
                 # Status changed - update history (skip for maintenance overrides)
                 if not maintenance_overridden:
@@ -774,7 +774,7 @@ def update_json_and_broadcast(bridges: List[Dict[str, Any]], region: str, shortf
                     last_known_state[doc_id] = copy.deepcopy(new_data)
 
     # Write to JSON file and broadcast if changes made
-    if updates_made:
+    if changed_bridge_ids:
         shared.last_scrape_had_changes = True
         shared.last_updated_time = current_time
         with bridges_file_lock:
@@ -795,8 +795,8 @@ def update_json_and_broadcast(bridges: List[Dict[str, Any]], region: str, shortf
             # Atomic write
             atomic_write_json("data/bridges.json", data)
 
-        # Broadcast to WebSocket clients
-        broadcast_sync(data)
+        # Broadcast to WebSocket clients (pass changed IDs for region filtering)
+        broadcast_sync(data, changed_bridge_ids)
 
 
 def daily_statistics_update() -> None:

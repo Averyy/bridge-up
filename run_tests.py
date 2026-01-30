@@ -51,6 +51,7 @@ def main():
         ("tests/test_health.py", "Health Tests (monitoring status logic)"),
         ("tests/test_boat_tracker.py", "Boat Tracker Tests (vessel filtering logic)"),
         ("tests/test_responsible_boat.py", "Responsible Boat Tests (closure attribution)"),
+        ("tests/test_websocket_channels.py", "WebSocket Channel Tests (subscription system)"),
         ("tests/test_maintenance.py", "Maintenance Runtime Tests (override system)"),
         ("tests/test_maintenance_scraper.py", "Maintenance Scraper Tests (HTML parsing)"),
         ("tests/test_maintenance_integration.py", "Maintenance Integration Tests (scraper override logic)")

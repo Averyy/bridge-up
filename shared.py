@@ -9,9 +9,13 @@ This module contains:
 - Event loop reference for sync->async broadcasting
 - Utility functions (atomic_write_json)
 """
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Set, TYPE_CHECKING
 import threading
+
+if TYPE_CHECKING:
+    from starlette.websockets import WebSocket
 import asyncio
 import tempfile
 import json
@@ -48,12 +52,88 @@ region_failures_lock = threading.Lock()
 endpoint_cache: Dict[str, str] = {}
 endpoint_cache_lock = threading.Lock()
 
+@dataclass
+class WebSocketClient:
+    """
+    Tracks per-client WebSocket state and channel subscriptions.
+
+    Attributes:
+        websocket: The WebSocket connection
+        channels: Set of channels the client is subscribed to
+
+    Channels can be:
+        - "bridges" / "boats" - all data
+        - "bridges:sct" / "boats:welland" - region-specific
+    """
+    websocket: 'WebSocket'
+    channels: Set[str] = field(default_factory=set)
+
+    def wants_bridges(self) -> bool:
+        """Check if client is subscribed to any bridge channel."""
+        return any(c == "bridges" or c.startswith("bridges:") for c in self.channels)
+
+    def wants_boats(self) -> bool:
+        """Check if client is subscribed to any boat channel."""
+        return any(c == "boats" or c.startswith("boats:") for c in self.channels)
+
+    def boat_regions(self) -> Optional[Set[str]]:
+        """
+        Get boat regions client wants, or None for all.
+
+        Returns:
+            None if subscribed to "boats" (all regions)
+            Set of region names if subscribed to specific regions
+            None if not subscribed to any boats
+        """
+        if "boats" in self.channels:
+            return None  # Wants all
+        regions = set()
+        for c in self.channels:
+            if c.startswith("boats:"):
+                regions.add(c.split(":", 1)[1])
+        return regions if regions else None
+
+    def bridge_regions(self) -> Optional[Set[str]]:
+        """
+        Get bridge regions client wants, or None for all.
+
+        Returns:
+            None if subscribed to "bridges" (all regions)
+            Set of region codes if subscribed to specific regions
+            None if not subscribed to any bridges
+        """
+        if "bridges" in self.channels:
+            return None  # Wants all
+        regions = set()
+        for c in self.channels:
+            if c.startswith("bridges:"):
+                regions.add(c.split(":", 1)[1])
+        return regions if regions else None
+
+    def wants_boat_region(self, region: str) -> bool:
+        """Check if client wants updates for a specific boat region."""
+        if "boats" in self.channels:
+            return True  # Subscribed to all
+        return f"boats:{region}" in self.channels
+
+    def wants_bridge_region(self, region: str) -> bool:
+        """Check if client wants updates for a specific bridge region."""
+        if "bridges" in self.channels:
+            return True  # Subscribed to all
+        return f"bridges:{region.lower()}" in self.channels
+
+
 # WebSocket clients (managed by main.py, used by scraper for broadcasting)
-# Type is List[WebSocket] but we can't import WebSocket here due to circular imports
-connected_clients: List = []
+connected_clients: List[WebSocketClient] = []
 
 # Event loop reference (set by main.py at startup, used for sync->async broadcast)
 main_loop: Optional[asyncio.AbstractEventLoop] = None
+
+# Per-region boat state for change detection (excludes volatile fields)
+# Structure: {region: serialized JSON string of vessels in that region}
+last_boats_by_region: Dict[str, str] = {}
+last_boats_broadcast_time: float = 0.0
+BOATS_MIN_BROADCAST_INTERVAL: float = 10.0  # Minimum seconds between broadcasts (flood prevention)
 
 # File lock for atomic writes to bridges.json
 bridges_file_lock = threading.Lock()

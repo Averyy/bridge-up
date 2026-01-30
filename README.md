@@ -48,7 +48,7 @@ Backend API powering the [Bridge Up iOS app](https://bridgeup.app). Never wait a
 
 | Endpoint | Rate Limit | Cache | Description |
 |----------|------------|-------|-------------|
-| `wss://api.bridgeup.app/ws` | - | - | WebSocket (real-time bridge updates) |
+| `wss://api.bridgeup.app/ws` | - | - | WebSocket (real-time updates, see [client guide](ws-client-guide.md)) |
 | `GET /` | 30/min | 60s | API root with endpoint discovery |
 | `GET /bridges` | 60/min | 10s | All bridges (same data as WebSocket) |
 | `GET /bridges/{id}` | 60/min | 10s | Single bridge by ID |
@@ -69,11 +69,25 @@ curl https://api.bridgeup.app/bridges
 ```javascript
 const ws = new WebSocket('wss://api.bridgeup.app/ws');
 
+ws.onopen = () => {
+  // Must subscribe to receive data
+  ws.send(JSON.stringify({
+    action: "subscribe",
+    channels: ["bridges", "boats"]  // or region-specific: ["bridges:sct", "boats:welland"]
+  }));
+};
+
 ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  console.log(data.bridges);
+  const msg = JSON.parse(event.data);
+  switch (msg.type) {
+    case "subscribed": console.log("Subscribed:", msg.channels); break;
+    case "bridges": console.log("Bridges:", msg.data.bridges); break;
+    case "boats": console.log("Boats:", msg.data.vessels); break;
+  }
 };
 ```
+
+See [WebSocket Client Guide](ws-client-guide.md) for complete documentation including region filtering.
 
 ### Response Format
 
@@ -146,7 +160,7 @@ curl https://api.bridgeup.app/boats
 **Vessel categories:** `cargo`, `tanker`, `tug`, `passenger`, `fishing`, `sailing`, `pleasure`, `other`
 
 **Data sources:**
-- UDP listeners (local AIS receivers) - real-time, ~1s latency
+- UDP listeners (local AIS receivers) - 30-45 second batching
 - AISHub API - polled every 60 seconds
 
 **Configuration:**

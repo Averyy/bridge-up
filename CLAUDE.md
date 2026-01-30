@@ -321,7 +321,7 @@ AISHub API (HTTP) ────┘
 ### Data Sources
 | Source | Latency | Data |
 |--------|---------|------|
-| UDP (local AIS receivers) | ~1 second | Position, speed, heading |
+| UDP (local AIS receivers) | 30-45 seconds (randomized) | Position, speed, heading |
 | AISHub API | 60 seconds | Position + static data (name, type, dimensions) |
 
 **AISHub Polling Strategy**: Uses a combined bounding box covering both Welland and Montreal regions in a single request. This gives 60s freshness for both regions (vs 120s if alternating). Extra vessels in Lake Ontario/St. Lawrence are filtered out by region bounds. AISHub has a hard limit of 1 request per 60 seconds.

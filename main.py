@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import JSONResponse, HTMLResponse
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Dict, Set
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -29,8 +29,51 @@ import threading
 import shared
 from shared import (
     TIMEZONE, last_known_state, last_known_state_lock, connected_clients,
-    bridges_file_lock
+    bridges_file_lock, WebSocketClient
 )
+
+# Valid WebSocket channels and their allowed region filters
+CHANNEL_REGIONS = {
+    "boats": {"welland", "montreal"},
+    "bridges": {"sct", "pc", "mss", "k", "sbs"},
+}
+
+
+def parse_channel(channel: str) -> tuple:
+    """
+    Parse channel string into (base, region).
+
+    Examples:
+        "boats" -> ("boats", None)
+        "boats:welland" -> ("boats", "welland")
+        "bridges:sct" -> ("bridges", "sct")
+        "invalid:foo" -> (None, None)
+        123 -> (None, None)  # Non-string input
+    """
+    if not isinstance(channel, str):
+        return None, None
+    if ":" in channel:
+        base, region = channel.split(":", 1)
+        if base in CHANNEL_REGIONS and region in CHANNEL_REGIONS[base]:
+            return base, region
+        return None, None  # Invalid
+
+    if channel in CHANNEL_REGIONS:
+        return channel, None  # Valid base channel, no region filter
+
+    return None, None  # Invalid
+
+
+def validate_channels(requested: list) -> set:
+    """Filter to valid channels only."""
+    valid = set()
+    for ch in requested:
+        base, region = parse_channel(ch)
+        if base:
+            valid.add(ch)
+    return valid
+
+
 from config import BRIDGE_KEYS, BRIDGE_DETAILS
 from boat_config import VESSEL_IDLE_THRESHOLD_MINUTES
 from maintenance import get_maintenance_info, validate_maintenance_file
@@ -41,6 +84,9 @@ boat_tracker = None
 
 # Maintenance scraper control (seasonal - winter only)
 ENABLE_MAINTENANCE_SCRAPER = os.getenv("ENABLE_MAINTENANCE_SCRAPER", "true").lower() == "true"
+
+# Boat WebSocket broadcast interval (check for changes every N seconds)
+BOATS_CHECK_INTERVAL_SECONDS = 10
 
 # Startup maintenance scraper thread (tracked for status monitoring)
 _maintenance_startup_thread: Optional[threading.Thread] = None
@@ -158,6 +204,8 @@ class HealthResponse(BaseModel):
     bridges_count: int = Field(description="Number of bridges in data")
     boats_count: int = Field(description="Number of vessels currently tracked")
     websocket_clients: int = Field(description="Connected WebSocket clients")
+    websocket_bridges_subscribers: int = Field(description="WebSocket clients subscribed to bridges")
+    websocket_boats_subscribers: int = Field(description="WebSocket clients subscribed to boats")
     maintenance: Optional[MaintenanceInfo] = Field(default=None, description="Maintenance override system status")
 
     model_config = {
@@ -172,6 +220,8 @@ class HealthResponse(BaseModel):
                 "bridges_count": 15,
                 "boats_count": 4,
                 "websocket_clients": 3,
+                "websocket_bridges_subscribers": 2,
+                "websocket_boats_subscribers": 1,
                 "maintenance": {
                     "file_exists": True,
                     "closure_count": 2,
@@ -632,6 +682,17 @@ async def lifespan(app: FastAPI):
     boat_tracker = BoatTracker()
     await boat_tracker.start()
 
+    # Schedule boat change check (pushes to WebSocket subscribers when data changes)
+    scheduler.add_job(
+        check_and_broadcast_boats_sync,
+        'interval',
+        seconds=BOATS_CHECK_INTERVAL_SECONDS,
+        id='boat_change_check',
+        max_instances=1,
+        coalesce=True
+    )
+    logger.info(f"Boat WebSocket broadcast enabled (checking every {BOATS_CHECK_INTERVAL_SECONDS}s)")
+
     yield
 
     # Shutdown
@@ -644,7 +705,7 @@ async def lifespan(app: FastAPI):
     # Close all WebSocket connections gracefully
     for client in connected_clients.copy():
         try:
-            await client.close(code=1001, reason="Server shutting down")
+            await client.websocket.close(code=1001, reason="Server shutting down")
         except Exception:
             pass
     connected_clients.clear()
@@ -685,59 +746,153 @@ app.add_middleware(
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """
-    WebSocket endpoint for real-time bridge updates.
+    WebSocket endpoint for real-time updates with channel subscriptions.
 
-    - On connect: sends full state immediately (with responsible_vessel_mmsi)
-    - On change: server broadcasts full state to all clients
-    - Protocol-level ping/pong handled by uvicorn
+    On connect: nothing sent (client must subscribe)
+    Subscribe: client sends {"action": "subscribe", "channels": ["bridges", "boats"]}
+
+    Channels:
+    - bridges: pushed when bridge status changes
+    - boats: pushed when vessel data changes (~every 30-60s based on AIS data arrival)
     """
-    from responsible_boat import find_responsible_vessel
-
     await websocket.accept()
-    connected_clients.append(websocket)
+    client = WebSocketClient(websocket=websocket)
+    connected_clients.append(client)
     logger.info(f"WebSocket client connected ({len(connected_clients)} total)")
 
     try:
-        # Send current state immediately on connect
-        if os.path.exists("data/bridges.json"):
-            with open("data/bridges.json") as f:
-                data = json.load(f)
-
-            # Inject responsible vessels
-            vessels = []
-            if boat_tracker:
-                vessels = boat_tracker.registry.get_moving_vessels(max_idle_minutes=VESSEL_IDLE_THRESHOLD_MINUTES)
-
-            for bridge_id, bridge_data in data.get("bridges", {}).items():
-                live = bridge_data.get("live", {})
-                status = live.get("status", "Unknown")
-                responsible_mmsi = find_responsible_vessel(bridge_id, status, vessels)
-                live["responsible_vessel_mmsi"] = responsible_mmsi
-
-            await websocket.send_text(json.dumps(data, default=str))
-
-        # Keep connection alive, handle incoming messages
         while True:
-            # Client can send pings, we just acknowledge by staying alive
-            await websocket.receive_text()
+            raw_message = await websocket.receive_text()
+            await handle_client_message(client, raw_message)
+
     except WebSocketDisconnect:
         pass
     except Exception as e:
         logger.debug(f"WebSocket error: {e}")
     finally:
-        if websocket in connected_clients:
-            connected_clients.remove(websocket)
+        if client in connected_clients:
+            connected_clients.remove(client)
         logger.info(f"WebSocket client disconnected ({len(connected_clients)} total)")
 
 
-async def broadcast(data: dict):
-    """
-    Broadcast data to all connected WebSocket clients.
+async def handle_client_message(client: WebSocketClient, raw: str):
+    """Handle incoming client messages (subscribe)."""
+    try:
+        msg = json.loads(raw)
+    except json.JSONDecodeError:
+        return  # Ignore malformed messages
 
-    Called when bridge status changes.
+    action = msg.get("action")
+
+    if action == "subscribe":
+        requested_channels = msg.get("channels", [])
+
+        # Validate and filter to known channels (supports region filters like boats:welland)
+        if not isinstance(requested_channels, list):
+            return
+        valid_requested = validate_channels(requested_channels)
+
+        # Update subscription (replaces previous)
+        client.channels = valid_requested
+
+        # Send confirmation
+        await client.websocket.send_text(
+            json.dumps({"type": "subscribed", "channels": list(client.channels)})
+        )
+
+        # Send current state for all subscribed channels
+        if client.wants_bridges():
+            await send_bridges_to_client(client)
+        if client.wants_boats():
+            await send_boats_to_client(client)
+
+        logger.debug(
+            f"Client subscribed to {list(client.channels)} "
+            f"(bridges: {sum(1 for c in connected_clients if c.wants_bridges())}, "
+            f"boats: {sum(1 for c in connected_clients if c.wants_boats())})"
+        )
+
+
+async def send_bridges_to_client(client: WebSocketClient):
+    """Send current bridge state to a single client, filtered to their regions."""
+    from responsible_boat import find_responsible_vessel
+
+    if not os.path.exists("data/bridges.json"):
+        return
+
+    with bridges_file_lock:
+        with open("data/bridges.json") as f:
+            data = json.load(f)
+
+    # Inject responsible vessels
+    vessels = []
+    if boat_tracker:
+        vessels = boat_tracker.registry.get_moving_vessels(max_idle_minutes=VESSEL_IDLE_THRESHOLD_MINUTES)
+
+    for bridge_id, bridge_data in data.get("bridges", {}).items():
+        live = bridge_data.get("live", {})
+        status = live.get("status", "Unknown")
+        responsible_mmsi = find_responsible_vessel(bridge_id, status, vessels)
+        live["responsible_vessel_mmsi"] = responsible_mmsi
+
+    # Filter to client's regions if specified
+    client_regions = client.bridge_regions()
+    if client_regions is not None:
+        data["bridges"] = {
+            bid: bdata for bid, bdata in data.get("bridges", {}).items()
+            if bid.split("_")[0].lower() in client_regions
+        }
+        data["available_bridges"] = [
+            b for b in data.get("available_bridges", [])
+            if b["region_short"].lower() in client_regions
+        ]
+
+    message = json.dumps({"type": "bridges", "data": data}, default=str)
+    await client.websocket.send_text(message)
+
+
+async def send_boats_to_client(client: WebSocketClient):
+    """Send current boat state to a single client, filtered to their regions."""
+    if not boat_tracker:
+        return
+
+    boats_data = boat_tracker.get_boats_response()
+    vessels = boats_data["vessels"]
+
+    # Filter to client's regions if specified
+    client_regions = client.boat_regions()
+    if client_regions is not None:
+        vessels = [v for v in vessels if v.get("region") in client_regions]
+
+    payload = {
+        "last_updated": boats_data["last_updated"],
+        "vessel_count": len(vessels),
+        "vessels": vessels
+    }
+
+    message = json.dumps({"type": "boats", "data": payload}, default=str)
+    await client.websocket.send_text(message)
+
+
+async def broadcast(data: dict, changed_bridge_ids: Optional[Set[str]] = None):
+    """
+    Broadcast bridge data to clients subscribed to bridge channels.
+
+    Called when bridge status changes (from scraper).
     Injects responsible_vessel_mmsi for each bridge before sending.
+
+    Args:
+        data: Full bridge data
+        changed_bridge_ids: Optional set of bridge IDs that changed.
+            If provided, only notifies subscribers to those regions.
+            If None, notifies all bridge subscribers.
     """
     from responsible_boat import find_responsible_vessel
+
+    # Get subscribers
+    subscribers = [c for c in connected_clients if c.wants_bridges()]
+    if not subscribers:
+        return
 
     # Deep copy to avoid modifying original
     broadcast_data = copy.deepcopy(data)
@@ -755,12 +910,57 @@ async def broadcast(data: dict):
         responsible_mmsi = find_responsible_vessel(bridge_id, status, vessels)
         live["responsible_vessel_mmsi"] = responsible_mmsi
 
-    message = json.dumps(broadcast_data, default=str)
-    disconnected = []
+    # Determine which regions changed
+    changed_regions: Optional[Set[str]] = None
+    if changed_bridge_ids:
+        changed_regions = set()
+        for bridge_id in changed_bridge_ids:
+            # Extract region from bridge_id (e.g., "SCT_CarltonSt" -> "sct")
+            region = bridge_id.split("_")[0].lower()
+            changed_regions.add(region)
 
-    for client in connected_clients.copy():
+    # Send to subscribers based on their region subscriptions
+    disconnected = []
+    notified_count = 0
+
+    for client in subscribers:
         try:
-            await client.send_text(message)
+            client_regions = client.bridge_regions()
+
+            # Check if this client should receive the update
+            should_send = False
+            if client_regions is None:
+                # Subscribed to all bridges ("bridges")
+                should_send = True
+            elif changed_regions is None:
+                # No change info provided, send to all
+                should_send = True
+            elif client_regions & changed_regions:
+                # Client cares about at least one changed region
+                should_send = True
+
+            if should_send:
+                # Filter to client's regions if they have a preference
+                if client_regions is not None:
+                    filtered_bridges = {
+                        bid: bdata for bid, bdata in broadcast_data.get("bridges", {}).items()
+                        if bid.split("_")[0].lower() in client_regions
+                    }
+                    filtered_available = [
+                        b for b in broadcast_data.get("available_bridges", [])
+                        if b["region_short"].lower() in client_regions
+                    ]
+                    client_data = {
+                        "last_updated": broadcast_data["last_updated"],
+                        "available_bridges": filtered_available,
+                        "bridges": filtered_bridges
+                    }
+                else:
+                    client_data = broadcast_data
+
+                message = json.dumps({"type": "bridges", "data": client_data}, default=str)
+                await client.websocket.send_text(message)
+                notified_count += 1
         except Exception:
             disconnected.append(client)
 
@@ -769,15 +969,147 @@ async def broadcast(data: dict):
         if client in connected_clients:
             connected_clients.remove(client)
 
+    if changed_regions:
+        logger.debug(f"Broadcast bridges: regions {changed_regions} changed, notified {notified_count}/{len(subscribers)} subscribers")
 
-def broadcast_sync(data: dict):
+
+def broadcast_sync(data: dict, changed_bridge_ids: Optional[Set[str]] = None):
     """
     Synchronous wrapper for broadcast, called from scraper threads.
 
     Schedules the async broadcast on the main event loop.
+
+    Args:
+        data: Full bridge data
+        changed_bridge_ids: Optional set of bridge IDs that changed
     """
     if shared.main_loop and shared.main_loop.is_running():
-        asyncio.run_coroutine_threadsafe(broadcast(data), shared.main_loop)
+        asyncio.run_coroutine_threadsafe(broadcast(data, changed_bridge_ids), shared.main_loop)
+
+
+# Fields excluded from boat change detection (they update constantly but aren't meaningful changes)
+# - last_seen: updates on every AIS message even if position unchanged
+# - source: can flip between udp/aishub for same vessel
+VOLATILE_VESSEL_FIELDS = {'last_seen', 'source'}
+
+
+def get_vessels_for_comparison(vessels: list) -> str:
+    """
+    Build a comparison string from vessel data, excluding volatile fields.
+
+    This ensures we only broadcast when meaningful data changes (position,
+    heading, speed, metadata) rather than on every AIS timestamp update.
+    """
+    stable_vessels = [
+        {k: v for k, v in vessel.items() if k not in VOLATILE_VESSEL_FIELDS}
+        for vessel in vessels
+    ]
+    return json.dumps(stable_vessels, sort_keys=True, default=str)
+
+
+async def broadcast_boats_if_changed():
+    """
+    Broadcast boat positions to subscribers if data has changed.
+
+    Called periodically by scheduler (every 10s).
+    Tracks changes per-region so clients only receive updates when
+    their subscribed regions have changes.
+
+    Change detection excludes volatile fields (last_seen, source) to avoid
+    broadcasting on every AIS message when nothing meaningful changed.
+    """
+    import time
+
+    if not boat_tracker:
+        return
+
+    # Check if anyone is subscribed to any boats channel
+    subscribers = [c for c in connected_clients if c.wants_boats()]
+    if not subscribers:
+        return
+
+    # Check minimum interval (flood prevention)
+    now = time.time()
+    if now - shared.last_boats_broadcast_time < shared.BOATS_MIN_BROADCAST_INTERVAL:
+        return
+
+    # Get all vessels and group by region
+    boats_data = boat_tracker.get_boats_response()
+    vessels = boats_data["vessels"]
+
+    by_region: Dict[str, list] = {}
+    for v in vessels:
+        region = v.get("region")
+        if region:
+            by_region.setdefault(region, []).append(v)
+
+    # Track which regions changed
+    changed_regions: Set[str] = set()
+
+    for region, region_vessels in by_region.items():
+        comparison = get_vessels_for_comparison(region_vessels)
+
+        if comparison != shared.last_boats_by_region.get(region):
+            changed_regions.add(region)
+            shared.last_boats_by_region[region] = comparison
+
+    # Also detect removed regions (had vessels before, now empty)
+    for region in list(shared.last_boats_by_region.keys()):
+        if region not in by_region:
+            changed_regions.add(region)
+            del shared.last_boats_by_region[region]
+
+    if not changed_regions:
+        return  # Nothing changed
+
+    # Send to subscribers based on their region subscriptions
+    disconnected = []
+    notified_count = 0
+
+    for client in subscribers:
+        try:
+            client_regions = client.boat_regions()
+
+            if client_regions is None:
+                # Subscribed to all boats ("boats") - send full payload if any region changed
+                payload = {
+                    "last_updated": boats_data["last_updated"],
+                    "vessel_count": len(vessels),
+                    "vessels": vessels
+                }
+                message = json.dumps({"type": "boats", "data": payload}, default=str)
+                await client.websocket.send_text(message)
+                notified_count += 1
+            else:
+                # Subscribed to specific regions - check if any of their regions changed
+                relevant_changes = client_regions & changed_regions
+                if relevant_changes:
+                    # Send only the vessels they care about
+                    client_vessels = [v for v in vessels if v.get("region") in client_regions]
+                    payload = {
+                        "last_updated": boats_data["last_updated"],
+                        "vessel_count": len(client_vessels),
+                        "vessels": client_vessels
+                    }
+                    message = json.dumps({"type": "boats", "data": payload}, default=str)
+                    await client.websocket.send_text(message)
+                    notified_count += 1
+        except Exception:
+            disconnected.append(client)
+
+    for client in disconnected:
+        if client in connected_clients:
+            connected_clients.remove(client)
+
+    shared.last_boats_broadcast_time = now
+
+    logger.debug(f"Broadcast boats: regions {changed_regions} changed, notified {notified_count}/{len(subscribers)} subscribers")
+
+
+def check_and_broadcast_boats_sync():
+    """Synchronous wrapper for boat broadcast, called from scheduler."""
+    if shared.main_loop and shared.main_loop.is_running():
+        asyncio.run_coroutine_threadsafe(broadcast_boats_if_changed(), shared.main_loop)
 
 
 @app.get("/bridges", response_model=BridgesResponse)
@@ -1022,6 +1354,9 @@ def health(request: Request, response: Response):
         "bridges_count": bridges_count,
         "boats_count": boats_count,
         "websocket_clients": len(connected_clients),
+        # Copy list to avoid race with main event loop (health runs in threadpool)
+        "websocket_bridges_subscribers": sum(1 for c in list(connected_clients) if c.wants_bridges()),
+        "websocket_boats_subscribers": sum(1 for c in list(connected_clients) if c.wants_boats()),
         "maintenance": get_maintenance_info()
     }
 

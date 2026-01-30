@@ -434,7 +434,7 @@ def interpret_bridge_status(bridge_data: Dict[str, Any]) -> Dict[str, Any]:
             status = "Opening"
         elif "raising" in raw_status:
             status = "Closing"
-        elif "work in progress" in raw_status:
+        elif "work in progress" in raw_status or "bridge outage" in raw_status:
             status = "Construction"
         else:
             status = "Closed"
@@ -462,7 +462,7 @@ def interpret_tracked_status(raw_status: str) -> str:
             return "Available (Raising Soon)"
         else:
             return "Available"
-    elif "work in progress" in raw_status:
+    elif "work in progress" in raw_status or "bridge outage" in raw_status:
         return "Unavailable (Construction)"
     else:
         return "Unavailable (Closed)"

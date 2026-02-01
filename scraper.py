@@ -876,9 +876,8 @@ def daily_statistics_update() -> None:
             failed_count += 1
             continue
 
-    # Write updated data to bridges.json
+    # Write updated data to bridges.json (preserve existing last_updated - only status changes should update it)
     with bridges_file_lock:
-        data["last_updated"] = datetime.now(TIMEZONE).isoformat()
         atomic_write_json("data/bridges.json", data)
 
     # Track when statistics were last calculated

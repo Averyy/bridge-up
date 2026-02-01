@@ -107,9 +107,25 @@ Clients must subscribe to channels after connecting. See [ws-client-guide.md](ws
 
 ### Health Endpoint (`/health`)
 
-Returns monitoring info:
-- `status`: "ok" or "error"
-- `status_message`: Human-readable status description
+Returns monitoring info with two separate health checks:
+
+**Seaway Status** (can we reach the Seaway API?):
+- `seaway_status`: "ok" or "error"
+- `seaway_message`: Details (e.g., "No successful fetch in 6 minutes")
+
+**Bridge Activity** (are bridges changing?):
+- `bridge_activity`: "ok" or "warning"
+- `bridge_activity_message`: Details (e.g., "Last bridge status change 2 hours ago")
+
+**Seasonal thresholds** for bridge activity warnings:
+- Summer (Mar 16 - Nov 30): 24 hours
+- Winter (Dec 1 - Mar 15): 168 hours (1 week)
+
+**Combined status** (for backwards compatibility):
+- `status`: "ok", "warning", or "error"
+- `status_message`: Human-readable explanation
+
+**Other fields:**
 - `last_updated`: Last time bridge data changed
 - `last_scrape`: Last **successful** scrape timestamp (not attempts)
 - `last_scrape_had_changes`: Whether last scrape found changes

@@ -20,6 +20,7 @@ ws.onopen = () => {
 ws.onmessage = (event) => {
   const msg = JSON.parse(event.data);
   switch (msg.type) {
+    case "ping": ws.send(JSON.stringify({action: "pong"})); break;
     case "subscribed": console.log("Subscribed to:", msg.channels); break;
     case "bridges": handleBridges(msg.data); break;
     case "boats": handleBoats(msg.data); break;
@@ -37,9 +38,59 @@ ws.onmessage = (event) => {
 3. Send subscribe message
 4. Receive confirmation + current data
 5. Receive push updates when data changes
+6. Respond to ping messages with pong (keepalive)
 ```
 
 **Key Point:** Clients must explicitly subscribe. No data is sent until you subscribe.
+
+---
+
+## Keepalive (Ping/Pong)
+
+The server sends periodic ping messages to detect dead connections. **Clients must respond to stay connected.**
+
+### How It Works
+
+1. Server sends `{"type": "ping"}` every **30 seconds**
+2. Client must respond with `{"action": "pong"}`
+3. Connections without any message for **90 seconds** are closed
+
+### Why This Matters
+
+- Mobile networks drop connections silently (WiFi↔cellular, tunnels, etc.)
+- Reverse proxies mask dead connections from the server
+- Without ping/pong, zombie connections accumulate indefinitely
+
+### Server Message
+
+```json
+{"type": "ping"}
+```
+
+### Client Response
+
+```json
+{"action": "pong"}
+```
+
+### Important Notes
+
+- **Any message resets the timeout**, not just pong (subscribe also counts)
+- If you miss 3 pings (~90s), you'll be disconnected
+- Reconnect automatically if disconnected
+
+---
+
+## Message Size Limit
+
+Client messages are limited to **4096 bytes**. Messages exceeding this limit are silently ignored.
+
+This limit is intentionally small because:
+- Client messages are only used for subscribe/pong (small JSON payloads)
+- Prevents memory exhaustion attacks
+- Typical subscribe message is ~100-200 bytes
+
+If you're hitting this limit, your message is malformed - check your JSON serialization.
 
 ---
 
@@ -120,6 +171,14 @@ Subscribe to specific regions to:
 ## Server Messages
 
 All messages have a `type` field.
+
+### Ping (Keepalive)
+
+```json
+{"type": "ping"}
+```
+
+Server sends every 30 seconds. **Client must respond with `{"action": "pong"}`** within 90 seconds to stay connected.
 
 ### Subscription Confirmation
 
@@ -274,20 +333,68 @@ Sent immediately after each subscribe. Shows your active subscriptions.
 
 ```swift
 class WebSocketManager: NSObject, URLSessionWebSocketDelegate {
+    static let shared = WebSocketManager()
+
     private var webSocket: URLSessionWebSocketTask?
     private var session: URLSession!
+    private var isConnected = false
+
+    override init() {
+        super.init()
+
+        // IMPORTANT: Handle app lifecycle to prevent zombie connections
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillResignActive),
+            name: UIApplication.willResignActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+    }
+
+    @objc private func appWillResignActive() {
+        // CRITICAL: Close WebSocket when app goes to background
+        // This prevents zombie connections on the server
+        disconnect()
+    }
+
+    @objc private func appDidBecomeActive() {
+        // Reconnect when app comes back to foreground
+        if !isConnected {
+            connect()
+        }
+    }
 
     func connect() {
+        guard !isConnected else { return }
+
         session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
         let url = URL(string: "wss://api.bridgeup.app/ws")!
         webSocket = session.webSocketTask(with: url)
         webSocket?.resume()
+        isConnected = true
         receiveMessage()
+    }
+
+    func disconnect() {
+        webSocket?.cancel(with: .goingAway, reason: nil)
+        webSocket = nil
+        isConnected = false
     }
 
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
                     didOpenWithProtocol protocol: String?) {
         subscribe()
+    }
+
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
+                    didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        isConnected = false
     }
 
     func subscribe() {
@@ -308,11 +415,30 @@ class WebSocketManager: NSObject, URLSessionWebSocketDelegate {
         }
     }
 
+    /// Send pong response to server ping (keepalive)
+    private func sendPong() {
+        let msg = ["action": "pong"]
+        if let data = try? JSONSerialization.data(withJSONObject: msg),
+           let str = String(data: data, encoding: .utf8) {
+            webSocket?.send(.string(str)) { _ in }
+        }
+    }
+
     func receiveMessage() {
         webSocket?.receive { [weak self] result in
             switch result {
             case .success(.string(let text)):
                 self?.handleMessage(text)
+            case .failure(let error):
+                print("WebSocket receive error: \(error)")
+                self?.isConnected = false
+                // Reconnect after delay if app is active
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    if UIApplication.shared.applicationState == .active {
+                        self?.connect()
+                    }
+                }
+                return
             default:
                 break
             }
@@ -325,33 +451,49 @@ class WebSocketManager: NSObject, URLSessionWebSocketDelegate {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = json["type"] as? String else { return }
 
-        DispatchQueue.main.async {
-            switch type {
-            case "subscribed":
-                print("Subscribed to: \(json["channels"] ?? [])")
-            case "bridges":
-                if let payload = json["data"] as? [String: Any] {
+        switch type {
+        case "ping":
+            // IMPORTANT: Respond to ping to stay connected
+            sendPong()
+
+        case "subscribed":
+            print("Subscribed to: \(json["channels"] ?? [])")
+
+        case "bridges":
+            if let payload = json["data"] as? [String: Any] {
+                DispatchQueue.main.async {
                     NotificationCenter.default.post(
                         name: .bridgesUpdated,
                         object: nil,
                         userInfo: ["data": payload]
                     )
                 }
-            case "boats":
-                if let payload = json["data"] as? [String: Any] {
+            }
+
+        case "boats":
+            if let payload = json["data"] as? [String: Any] {
+                DispatchQueue.main.async {
                     NotificationCenter.default.post(
                         name: .boatsUpdated,
                         object: nil,
                         userInfo: ["data": payload]
                     )
                 }
-            default:
-                break
             }
+
+        default:
+            break
         }
     }
 }
 ```
+
+### Key Points
+
+1. **Close on background**: Call `disconnect()` in `willResignActive` to prevent zombie connections
+2. **Reconnect on foreground**: Call `connect()` in `didBecomeActive`
+3. **Respond to pings**: Handle `"ping"` message type and send `{"action": "pong"}`
+4. **Auto-reconnect**: Reconnect with delay on connection errors
 
 ### Update Subscription on Settings Change
 
@@ -373,6 +515,8 @@ class BridgeUpWebSocket {
   constructor() {
     this.ws = null;
     this.reconnectDelay = 1000;
+    this.showBoats = true;
+    this.boatRegion = null;  // null = all regions, or "welland"/"montreal"
   }
 
   connect() {
@@ -394,9 +538,22 @@ class BridgeUpWebSocket {
       setTimeout(() => this.connect(), this.reconnectDelay);
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000);
     };
+
+    this.ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+    };
+  }
+
+  disconnect() {
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
   }
 
   subscribe(channels = null) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
     if (!channels) {
       channels = ["bridges"];
       if (this.showBoats) {
@@ -410,14 +567,28 @@ class BridgeUpWebSocket {
     }));
   }
 
+  // Send pong response to server ping (keepalive)
+  sendPong() {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ action: "pong" }));
+    }
+  }
+
   handleMessage(msg) {
     switch (msg.type) {
+      case "ping":
+        // IMPORTANT: Respond to ping to stay connected
+        this.sendPong();
+        break;
+
       case "subscribed":
         console.log("Subscribed to:", msg.channels);
         break;
+
       case "bridges":
         this.onBridgesUpdate?.(msg.data);
         break;
+
       case "boats":
         this.onBoatsUpdate?.(msg.data);
         break;
@@ -430,7 +601,25 @@ const ws = new BridgeUpWebSocket();
 ws.onBridgesUpdate = (data) => updateBridgeUI(data);
 ws.onBoatsUpdate = (data) => updateBoatMarkers(data);
 ws.connect();
+
+// Optional: Close when page unloads to prevent zombie connections
+window.addEventListener("beforeunload", () => ws.disconnect());
+
+// Optional: Handle visibility changes (reconnect when tab becomes visible)
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" &&
+      (!ws.ws || (ws.ws.readyState !== WebSocket.OPEN && ws.ws.readyState !== WebSocket.CONNECTING))) {
+    ws.connect();
+  }
+});
 ```
+
+### Key Points
+
+1. **Respond to pings**: Handle `"ping"` message type and send `{"action": "pong"}`
+2. **Close on unload**: Disconnect in `beforeunload` to prevent zombie connections
+3. **Auto-reconnect**: Exponential backoff on disconnection
+4. **Tab visibility**: Optionally reconnect when tab becomes visible
 
 ---
 

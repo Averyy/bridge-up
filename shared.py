@@ -21,6 +21,7 @@ import tempfile
 import json
 import os
 import pytz
+import time
 
 # Timezone for Toronto/Eastern time
 TIMEZONE = pytz.timezone('America/Toronto')
@@ -60,6 +61,7 @@ class WebSocketClient:
     Attributes:
         websocket: The WebSocket connection
         channels: Set of channels the client is subscribed to
+        last_seen: Timestamp of last message received (for timeout detection)
 
     Channels can be:
         - "bridges" / "boats" - all data
@@ -67,6 +69,7 @@ class WebSocketClient:
     """
     websocket: 'WebSocket'
     channels: Set[str] = field(default_factory=set)
+    last_seen: float = field(default_factory=time.time)
 
     def wants_bridges(self) -> bool:
         """Check if client is subscribed to any bridge channel."""

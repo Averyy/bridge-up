@@ -25,6 +25,7 @@ import json
 import asyncio
 import os
 import threading
+import time
 
 import shared
 from shared import (
@@ -87,6 +88,24 @@ ENABLE_MAINTENANCE_SCRAPER = os.getenv("ENABLE_MAINTENANCE_SCRAPER", "true").low
 
 # Boat WebSocket broadcast interval (check for changes every N seconds)
 BOATS_CHECK_INTERVAL_SECONDS = 10
+
+# WebSocket keepalive settings (application-level ping/pong)
+# These pass through reverse proxies unlike protocol-level pings
+WEBSOCKET_PING_INTERVAL = 30  # Send ping every 30 seconds
+WEBSOCKET_TIMEOUT = 90  # Disconnect if no message received in 90 seconds (3 missed pings)
+WEBSOCKET_RECEIVE_CHECK_INTERVAL = 10.0  # How often to check for timeout (must be < WEBSOCKET_PING_INTERVAL)
+WEBSOCKET_MAX_MESSAGE_SIZE = 4096  # Maximum message size in bytes (prevents memory exhaustion)
+
+# WebSocket connection limits
+MAX_WEBSOCKET_CLIENTS = 5000  # Maximum concurrent connections
+WEBSOCKET_RATE_LIMIT = 30  # Max connections per IP per minute (generous for reconnects)
+WEBSOCKET_RATE_WINDOW = 60  # Rate limit window in seconds
+
+# Pre-computed ping message (avoids json.dumps on every ping)
+PING_MESSAGE = json.dumps({"type": "ping"})
+
+# Track WebSocket connection attempts per IP: {ip: [timestamp, timestamp, ...]}
+_ws_connection_attempts: Dict[str, list] = {}
 
 # Startup maintenance scraper thread (tracked for status monitoring)
 _maintenance_startup_thread: Optional[threading.Thread] = None
@@ -751,6 +770,56 @@ app.add_middleware(
 )
 
 
+def get_websocket_client_ip(websocket: WebSocket) -> str:
+    """Get client IP from WebSocket, checking proxy headers."""
+    headers = dict(websocket.headers)
+
+    # X-Forwarded-For: rightmost is the real client IP (Caddy appends it)
+    forwarded = headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[-1].strip()
+
+    # Fallback to X-Real-IP
+    real_ip = headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
+
+    # Direct connection
+    return websocket.client.host if websocket.client else "127.0.0.1"
+
+
+def check_websocket_rate_limit(ip: str) -> bool:
+    """
+    Check if IP is within rate limit. Returns True if allowed, False if exceeded.
+
+    Cleans up old entries as a side effect.
+    """
+    now = time.time()
+    cutoff = now - WEBSOCKET_RATE_WINDOW
+
+    # Get or create entry for this IP
+    if ip not in _ws_connection_attempts:
+        _ws_connection_attempts[ip] = []
+
+    # Remove old attempts outside the window
+    _ws_connection_attempts[ip] = [t for t in _ws_connection_attempts[ip] if t > cutoff]
+
+    # Check if over limit
+    if len(_ws_connection_attempts[ip]) >= WEBSOCKET_RATE_LIMIT:
+        return False
+
+    # Record this attempt
+    _ws_connection_attempts[ip].append(now)
+
+    # Periodic cleanup: remove IPs with no recent attempts (every ~100 checks)
+    if len(_ws_connection_attempts) > 100 and now % 10 < 0.1:
+        empty_ips = [k for k, v in _ws_connection_attempts.items() if not v]
+        for k in empty_ips:
+            del _ws_connection_attempts[k]
+
+    return True
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """
@@ -762,25 +831,97 @@ async def websocket_endpoint(websocket: WebSocket):
     Channels:
     - bridges: pushed when bridge status changes
     - boats: pushed when vessel data changes (~every 30-60s based on AIS data arrival)
+
+    Keepalive: Server sends {"type": "ping"} every 30s.
+    Client should respond with {"action": "pong"} to stay connected.
+    Connections without any message for 90s are closed.
     """
+    # Get client IP for rate limiting
+    client_ip = get_websocket_client_ip(websocket)
+
+    # Enforce rate limit before accepting
+    if not check_websocket_rate_limit(client_ip):
+        await websocket.close(code=1008, reason="Rate limit exceeded")
+        logger.debug(f"WebSocket rate limited: {client_ip}")
+        return
+
+    # Enforce connection limit before accepting
+    if len(connected_clients) >= MAX_WEBSOCKET_CLIENTS:
+        await websocket.close(code=1013, reason="Max connections exceeded")
+        logger.warning(f"WebSocket connection rejected: max clients ({MAX_WEBSOCKET_CLIENTS}) reached")
+        return
+
     await websocket.accept()
     client = WebSocketClient(websocket=websocket)
     connected_clients.append(client)
     logger.info(f"WebSocket client connected ({len(connected_clients)} total)")
 
+    # Start ping task to detect dead connections through reverse proxies
+    ping_task = asyncio.create_task(send_pings(client))
+
     try:
         while True:
-            raw_message = await websocket.receive_text()
-            await handle_client_message(client, raw_message)
+            # Check timeout before waiting for message
+            if time.time() - client.last_seen > WEBSOCKET_TIMEOUT:
+                logger.info(f"WebSocket timeout ({WEBSOCKET_TIMEOUT}s no response), disconnecting")
+                await websocket.close(code=1000, reason="Timeout")
+                break
+
+            try:
+                # Wait for message with short timeout to allow periodic timeout checks
+                raw_message = await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=WEBSOCKET_RECEIVE_CHECK_INTERVAL
+                )
+                # Enforce message size limit to prevent memory exhaustion
+                if len(raw_message) > WEBSOCKET_MAX_MESSAGE_SIZE:
+                    logger.debug(f"WebSocket message too large ({len(raw_message)} bytes), ignoring")
+                    continue
+                client.last_seen = time.time()
+                await handle_client_message(client, raw_message)
+            except asyncio.TimeoutError:
+                # No message received, loop back to check timeout
+                continue
 
     except WebSocketDisconnect:
         pass
     except Exception as e:
         logger.debug(f"WebSocket error: {e}")
     finally:
-        if client in connected_clients:
+        ping_task.cancel()
+        try:
+            await ping_task
+        except asyncio.CancelledError:
+            pass
+        try:
             connected_clients.remove(client)
+        except ValueError:
+            pass  # Already removed
         logger.info(f"WebSocket client disconnected ({len(connected_clients)} total)")
+
+
+async def send_pings(client: WebSocketClient):
+    """
+    Send periodic pings to detect dead connections.
+
+    Application-level pings pass through reverse proxies (unlike protocol-level).
+    Client must respond with {"action": "pong"} to reset the timeout.
+    """
+    try:
+        while True:
+            await asyncio.sleep(WEBSOCKET_PING_INTERVAL)
+            try:
+                await client.websocket.send_text(PING_MESSAGE)
+            except Exception as e:
+                # Send failed - connection is definitely dead
+                logger.debug(f"Ping send failed, closing connection: {e}")
+                try:
+                    await client.websocket.close(code=1001, reason="Ping failed")
+                except Exception:
+                    pass  # Already closed
+                break
+    except asyncio.CancelledError:
+        pass
 
 
 async def handle_client_message(client: WebSocketClient, raw: str):
@@ -791,6 +932,11 @@ async def handle_client_message(client: WebSocketClient, raw: str):
         return  # Ignore malformed messages
 
     action = msg.get("action")
+
+    if action == "pong":
+        # Pong received - last_seen already updated in websocket_endpoint
+        # No further action needed
+        return
 
     if action == "subscribe":
         requested_channels = msg.get("channels", [])
@@ -974,8 +1120,10 @@ async def broadcast(data: dict, changed_bridge_ids: Optional[Set[str]] = None):
 
     # Clean up disconnected clients
     for client in disconnected:
-        if client in connected_clients:
+        try:
             connected_clients.remove(client)
+        except ValueError:
+            pass  # Already removed
 
     if changed_regions:
         logger.debug(f"Broadcast bridges: regions {changed_regions} changed, notified {notified_count}/{len(subscribers)} subscribers")
@@ -1400,8 +1548,8 @@ def health(request: Request, response: Response):
         "statistics_last_updated": shared.statistics_last_updated.isoformat() if shared.statistics_last_updated else None,
         "bridges_count": bridges_count,
         "boats_count": boats_count,
-        "websocket_clients": len(connected_clients),
         # Copy list to avoid race with main event loop (health runs in threadpool)
+        "websocket_clients": len(list(connected_clients)),
         "websocket_bridges_subscribers": sum(1 for c in list(connected_clients) if c.wants_bridges()),
         "websocket_boats_subscribers": sum(1 for c in list(connected_clients) if c.wants_boats()),
         "maintenance": get_maintenance_info()

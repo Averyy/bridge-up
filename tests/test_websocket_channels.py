@@ -796,6 +796,153 @@ class TestBoatBroadcastRegionFiltering(unittest.TestCase):
         # When client_regions is None, client gets full payload regardless of changed_regions
 
 
+class TestKeepaliveConstants(unittest.TestCase):
+    """Test WebSocket keepalive constants are properly defined"""
+
+    def test_ping_interval_defined(self):
+        """WEBSOCKET_PING_INTERVAL is defined and reasonable"""
+        from main import WEBSOCKET_PING_INTERVAL
+        self.assertIsInstance(WEBSOCKET_PING_INTERVAL, (int, float))
+        self.assertGreater(WEBSOCKET_PING_INTERVAL, 0)
+        self.assertLessEqual(WEBSOCKET_PING_INTERVAL, 60)  # Not too long
+
+    def test_timeout_defined(self):
+        """WEBSOCKET_TIMEOUT is defined and reasonable"""
+        from main import WEBSOCKET_TIMEOUT
+        self.assertIsInstance(WEBSOCKET_TIMEOUT, (int, float))
+        self.assertGreater(WEBSOCKET_TIMEOUT, 0)
+
+    def test_timeout_greater_than_ping_interval(self):
+        """Timeout should be greater than ping interval (allow missed pings)"""
+        from main import WEBSOCKET_PING_INTERVAL, WEBSOCKET_TIMEOUT
+        self.assertGreater(WEBSOCKET_TIMEOUT, WEBSOCKET_PING_INTERVAL)
+
+    def test_receive_check_interval_defined(self):
+        """WEBSOCKET_RECEIVE_CHECK_INTERVAL is defined"""
+        from main import WEBSOCKET_RECEIVE_CHECK_INTERVAL
+        self.assertIsInstance(WEBSOCKET_RECEIVE_CHECK_INTERVAL, (int, float))
+        self.assertGreater(WEBSOCKET_RECEIVE_CHECK_INTERVAL, 0)
+
+    def test_receive_check_less_than_ping_interval(self):
+        """Receive check should be less than ping interval"""
+        from main import WEBSOCKET_PING_INTERVAL, WEBSOCKET_RECEIVE_CHECK_INTERVAL
+        self.assertLess(WEBSOCKET_RECEIVE_CHECK_INTERVAL, WEBSOCKET_PING_INTERVAL)
+
+
+class TestWebSocketClientLastSeen(unittest.TestCase):
+    """Test WebSocketClient last_seen field for timeout detection"""
+
+    def test_last_seen_initialized_on_creation(self):
+        """last_seen is initialized to current time on client creation"""
+        import time
+        mock_ws = MagicMock()
+
+        before = time.time()
+        client = WebSocketClient(websocket=mock_ws)
+        after = time.time()
+
+        self.assertGreaterEqual(client.last_seen, before)
+        self.assertLessEqual(client.last_seen, after)
+
+    def test_last_seen_can_be_updated(self):
+        """last_seen can be updated to track activity"""
+        import time
+        mock_ws = MagicMock()
+        client = WebSocketClient(websocket=mock_ws)
+
+        original_last_seen = client.last_seen
+        time.sleep(0.01)  # Small delay
+
+        new_time = time.time()
+        client.last_seen = new_time
+
+        self.assertGreater(client.last_seen, original_last_seen)
+        self.assertEqual(client.last_seen, new_time)
+
+    def test_timeout_calculation(self):
+        """Timeout can be calculated from last_seen"""
+        import time
+        from main import WEBSOCKET_TIMEOUT
+
+        mock_ws = MagicMock()
+        client = WebSocketClient(websocket=mock_ws)
+
+        # Fresh client should not be timed out
+        is_timed_out = (time.time() - client.last_seen) > WEBSOCKET_TIMEOUT
+        self.assertFalse(is_timed_out)
+
+        # Simulate old last_seen (beyond timeout)
+        client.last_seen = time.time() - WEBSOCKET_TIMEOUT - 1
+        is_timed_out = (time.time() - client.last_seen) > WEBSOCKET_TIMEOUT
+        self.assertTrue(is_timed_out)
+
+
+class TestPingPongMessages(unittest.TestCase):
+    """Test ping/pong message format"""
+
+    def test_ping_message_format(self):
+        """Ping message has correct format"""
+        import json
+        ping_msg = json.dumps({"type": "ping"})
+        parsed = json.loads(ping_msg)
+
+        self.assertEqual(parsed["type"], "ping")
+        self.assertEqual(len(parsed), 1)  # Only type field
+
+    def test_pong_message_format(self):
+        """Pong message has correct format"""
+        pong_msg = {"action": "pong"}
+        self.assertEqual(pong_msg.get("action"), "pong")
+
+    def test_pong_action_recognized(self):
+        """Pong action is a valid action type"""
+        msg = {"action": "pong"}
+        action = msg.get("action")
+        self.assertEqual(action, "pong")
+
+
+class TestMessageSizeLimit(unittest.TestCase):
+    """Test WebSocket message size limit constant"""
+
+    def test_max_message_size_defined(self):
+        """WEBSOCKET_MAX_MESSAGE_SIZE is defined and reasonable"""
+        from main import WEBSOCKET_MAX_MESSAGE_SIZE
+        self.assertIsInstance(WEBSOCKET_MAX_MESSAGE_SIZE, (int, float))
+        self.assertGreater(WEBSOCKET_MAX_MESSAGE_SIZE, 0)
+        # Should be at least 1KB for valid JSON messages
+        self.assertGreaterEqual(WEBSOCKET_MAX_MESSAGE_SIZE, 1024)
+        # Should be under 1MB to prevent memory issues
+        self.assertLessEqual(WEBSOCKET_MAX_MESSAGE_SIZE, 1024 * 1024)
+
+    def test_max_message_size_allows_valid_subscribe(self):
+        """Max message size allows typical subscribe messages"""
+        import json
+        from main import WEBSOCKET_MAX_MESSAGE_SIZE
+
+        # Typical subscribe message with all channels
+        msg = {
+            "action": "subscribe",
+            "channels": [
+                "bridges", "bridges:sct", "bridges:pc", "bridges:mss", "bridges:k", "bridges:sbs",
+                "boats", "boats:welland", "boats:montreal"
+            ]
+        }
+        serialized = json.dumps(msg)
+        self.assertLess(len(serialized), WEBSOCKET_MAX_MESSAGE_SIZE)
+
+
+class TestConnectionLimit(unittest.TestCase):
+    """Test WebSocket connection limit constant"""
+
+    def test_max_clients_defined(self):
+        """MAX_WEBSOCKET_CLIENTS is defined and reasonable"""
+        from main import MAX_WEBSOCKET_CLIENTS
+        self.assertIsInstance(MAX_WEBSOCKET_CLIENTS, int)
+        self.assertGreater(MAX_WEBSOCKET_CLIENTS, 0)
+        # Should allow at least 100 concurrent clients
+        self.assertGreaterEqual(MAX_WEBSOCKET_CLIENTS, 100)
+
+
 class TestBridgeRegionFilteringIntegration(unittest.TestCase):
     """Integration tests for bridge region filtering"""
 

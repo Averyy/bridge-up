@@ -1320,7 +1320,7 @@ def health(request: Request, response: Response):
 
     Seasonal thresholds:
         - Summer (Mar 16 - Nov 30): 24h
-        - Winter (Dec 1 - Mar 15): 72h
+        - Winter (Dec 1 - Mar 15): 168h (1 week)
 
     Rate limit: 30 requests/minute per IP.
     Cache: Responses cached for 5 seconds.
@@ -1328,7 +1328,7 @@ def health(request: Request, response: Response):
     response.headers["Cache-Control"] = "public, max-age=5"
 
     now = datetime.now(TIMEZONE)
-    inactivity_threshold = timedelta(hours=72) if is_winter_season(now) else timedelta(hours=24)
+    inactivity_threshold = timedelta(hours=168) if is_winter_season(now) else timedelta(hours=24)
 
     # Get bridge count from memory
     with last_known_state_lock:

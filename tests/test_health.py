@@ -39,7 +39,7 @@ def calculate_health_status(last_scrape_time, last_updated_time, now=None, conse
     if now is None:
         now = datetime.now(TIMEZONE)
 
-    inactivity_threshold = timedelta(hours=72) if is_winter_season(now) else timedelta(hours=24)
+    inactivity_threshold = timedelta(hours=168) if is_winter_season(now) else timedelta(hours=24)
 
     # Seaway status (can we reach the seaway API?)
     seaway_status = "ok"
@@ -169,23 +169,23 @@ class TestHealthStatusLogic(unittest.TestCase):
         self.assertIn("25 hours", activity_msg)
         self.assertIn("threshold: 24h", activity_msg)
 
-    def test_recent_winter_48h_returns_ok(self):
-        """No bridge changes for 48 hours in winter returns ok (within 72h threshold)"""
-        stale = self.winter_now - timedelta(hours=48)
+    def test_recent_winter_100h_returns_ok(self):
+        """No bridge changes for 100 hours in winter returns ok (within 168h threshold)"""
+        stale = self.winter_now - timedelta(hours=100)
         result = calculate_health_status(self.winter_now, stale, self.winter_now)
         status, _, _, _, bridge_activity, _ = result
         self.assertEqual(status, "ok")
         self.assertEqual(bridge_activity, "ok")
 
-    def test_stale_winter_80h_returns_warning(self):
-        """No bridge changes for 80 hours in winter returns warning (beyond 72h threshold)"""
-        stale = self.winter_now - timedelta(hours=80)
+    def test_stale_winter_200h_returns_warning(self):
+        """No bridge changes for 200 hours in winter returns warning (beyond 168h threshold)"""
+        stale = self.winter_now - timedelta(hours=200)
         result = calculate_health_status(self.winter_now, stale, self.winter_now)
         status, _, _, _, bridge_activity, activity_msg = result
         self.assertEqual(status, "warning")
         self.assertEqual(bridge_activity, "warning")
-        self.assertIn("80 hours", activity_msg)
-        self.assertIn("threshold: 72h", activity_msg)
+        self.assertIn("200 hours", activity_msg)
+        self.assertIn("threshold: 168h", activity_msg)
 
     def test_error_takes_precedence(self):
         """Error takes precedence over warning when both conditions met"""
@@ -206,15 +206,15 @@ class TestHealthStatusLogic(unittest.TestCase):
         self.assertEqual(bridge_activity, "ok")
 
     def test_winter_threshold_boundary(self):
-        """Test exact boundary of 72h threshold in winter"""
-        # Just under 72h - should be ok
-        just_under = self.winter_now - timedelta(hours=71)
+        """Test exact boundary of 168h threshold in winter"""
+        # Just under 168h - should be ok
+        just_under = self.winter_now - timedelta(hours=167)
         result = calculate_health_status(self.winter_now, just_under, self.winter_now)
         _, _, _, _, bridge_activity, _ = result
         self.assertEqual(bridge_activity, "ok")
 
-        # Just over 72h - should be warning
-        just_over = self.winter_now - timedelta(hours=73)
+        # Just over 168h - should be warning
+        just_over = self.winter_now - timedelta(hours=169)
         result = calculate_health_status(self.winter_now, just_over, self.winter_now)
         _, _, _, _, bridge_activity, _ = result
         self.assertEqual(bridge_activity, "warning")

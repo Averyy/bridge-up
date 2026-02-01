@@ -72,17 +72,38 @@ uv pip install -r requirements.txt
 
 | Endpoint | Rate Limit | Cache | Description |
 |----------|------------|-------|-------------|
-| `WS /ws` | - | - | WebSocket for real-time bridge updates |
+| `WS /ws` | - | - | WebSocket with channel subscriptions (see below) |
 | `GET /` | 30/min | 60s | API root with endpoint discovery |
-| `GET /bridges` | 60/min | 10s | HTTP fallback (same data as WebSocket) |
+| `GET /bridges` | 60/min | 10s | All bridges (HTTP fallback) |
 | `GET /bridges/{id}` | 60/min | 10s | Single bridge by ID |
-| `GET /boats` | 60/min | 10s | Vessel positions in bridge regions (REST only) |
+| `GET /boats` | 60/min | 10s | All vessels (HTTP fallback) |
 | `GET /health` | 30/min | 5s | Health check with status info |
 | `GET /docs` | 30/min | 60s | Custom Swagger UI with dark theme |
 | `GET /openapi.json` | 30/min | 60s | OpenAPI schema |
 
 **Rate Limiting**: Uses slowapi (in-memory). Returns 429 with `Retry-After: 60` header.
 **Caching**: Cache-Control headers for browser/CDN caching. WebSocket unaffected.
+
+### WebSocket (`/ws`)
+
+Clients must subscribe to channels after connecting. See [ws-client-guide.md](ws-client-guide.md) for full docs.
+
+**Channels:**
+| Channel | Description |
+|---------|-------------|
+| `bridges` | All 15 bridges |
+| `bridges:{region}` | Region-specific: `sct`, `pc`, `mss`, `k`, `sbs` |
+| `boats` | All vessels |
+| `boats:{region}` | Region-specific: `welland`, `montreal` |
+
+**Push behavior:**
+- **Bridges**: Pushed when status changes (few times/day per bridge)
+- **Boats**: Pushed when vessel data changes (~30-60s), excludes volatile fields (`last_seen`, `source`)
+
+**Example:**
+```json
+{"action": "subscribe", "channels": ["bridges", "boats:welland"]}
+```
 
 ### Health Endpoint (`/health`)
 
@@ -297,7 +318,7 @@ docker exec bridge-up python -c "from scraper import daily_statistics_update; da
 - **Added**: Real-time vessel tracking via AIS
 - **Added**: `boat_tracker.py` - UDP listener + AISHub API poller
 - **Added**: `boat_config.py` - Region bounding boxes, vessel types
-- **Added**: `GET /boats` endpoint (REST only, no WebSocket)
+- **Added**: `GET /boats` endpoint + WebSocket subscription channel
 - **Data sources**: Local UDP dispatchers (real-time) + AISHub API (60s polling)
 - **In-memory only**: No persistence, vessels cleaned up after 15 min
 - **Regions**: Welland Canal + Montreal South Shore
@@ -309,12 +330,19 @@ docker exec bridge-up python -c "from scraper import daily_statistics_update; da
 - **Two modes**: "Closing soon" (approaching/waiting) vs "Closed/Closing" (actively transiting)
 - **Added**: 42 unit tests for responsible boat logic
 
+### January 2026: WebSocket Channel Subscriptions
+- **Added**: Channel-based subscriptions (`bridges`, `boats`, region-specific variants)
+- **Added**: Region filtering for both bridges and boats (`bridges:sct`, `boats:welland`, etc.)
+- **Added**: Boat WebSocket broadcasts with change detection (excludes `last_seen`, `source`)
+- **Added**: `ws-client-guide.md` with full iOS/web integration examples
+- **Changed**: WebSocket now requires explicit subscribe message (no auto-send on connect)
+
 ## Boat Tracking System
 
 ### Architecture
 ```
 AIS Dispatchers (UDP) ─┐
-                       ├─> VesselRegistry ─> GET /boats
+                       ├─> VesselRegistry ─> GET /boats + WebSocket (boats channel)
 AISHub API (HTTP) ────┘
 ```
 
@@ -357,6 +385,13 @@ AISHub API (HTTP) ────┘
 - Only vessels that moved in last 120 minutes (filters out anchored/docked vessels while allowing time for vessels waiting, maneuvering, or temporarily stopped)
 - Only ship MMSIs (200M-799M range)
 - Stale vessels removed after 15 minutes (no data received)
+
+### WebSocket Broadcast Behavior
+- Checks for changes every 10 seconds
+- Broadcasts when **any field changes** except `last_seen` and `source`
+- Even tiny position changes (0.000001°) trigger a broadcast
+- Minimum 10s between broadcasts (flood prevention)
+- If all vessels are stationary with no field changes, no broadcasts occur
 
 ## Responsible Vessel Attribution (responsible_boat.py)
 

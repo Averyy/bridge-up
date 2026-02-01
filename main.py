@@ -197,6 +197,10 @@ class HealthResponse(BaseModel):
     """Health check response."""
     status: str = Field(description="API status: ok, warning, or error", examples=["ok"])
     status_message: str = Field(description="Human-readable status explanation")
+    seaway_status: str = Field(description="Seaway API health: ok or error", examples=["ok"])
+    seaway_message: str = Field(description="Seaway API health details")
+    bridge_activity: str = Field(description="Bridge activity: ok or warning", examples=["ok"])
+    bridge_activity_message: str = Field(description="Bridge activity details")
     last_updated: Optional[str] = Field(description="Last time bridge data changed")
     last_scrape: Optional[str] = Field(description="Last successful scrape timestamp")
     last_scrape_had_changes: bool = Field(description="Whether last scrape found changes")
@@ -213,6 +217,10 @@ class HealthResponse(BaseModel):
             "example": {
                 "status": "ok",
                 "status_message": "All systems operational",
+                "seaway_status": "ok",
+                "seaway_message": "Seaway API responding normally",
+                "bridge_activity": "ok",
+                "bridge_activity_message": "Last bridge status change 2 hours ago",
                 "last_updated": "2025-12-24T12:25:00-05:00",
                 "last_scrape": "2025-12-24T12:30:05-05:00",
                 "last_scrape_had_changes": False,
@@ -1283,25 +1291,36 @@ def get_boats(request: Request, response: Response):
     }
 
 
+def is_winter_season(dt: datetime) -> bool:
+    """
+    Check if date is in winter season (Dec 1 - Mar 15).
+
+    During winter, bridges are closed for construction/maintenance,
+    so extended periods without status changes are expected.
+    """
+    month, day = dt.month, dt.day
+    # Dec 1 onwards OR Jan/Feb OR Mar 1-15
+    return month == 12 or month in (1, 2) or (month == 3 and day <= 15)
+
+
 @app.get("/health", response_model=HealthResponse)
 @limiter.limit("30/minute")
 def health(request: Request, response: Response):
     """
     Health check endpoint for monitoring.
 
-    Status levels:
+    Combined status levels (for backwards compatibility):
         - "ok": All systems operational
-        - "warning": Unusual inactivity (no bridge changes in 24+ hours)
-        - "error": Scraper stalled (no scrape in 5+ minutes)
+        - "warning": Data stale beyond threshold
+        - "error": Seaway API unreachable (no scrape in 5+ minutes)
 
-    Returns:
-        - status: ok, warning, or error
-        - status_message: Human-readable explanation
-        - last_updated: timestamp of last data update
-        - last_scrape: timestamp of last scrape attempt
-        - statistics_last_updated: timestamp of last statistics calculation
-        - bridges_count: number of bridges in data
-        - websocket_clients: number of connected clients
+    Separate statuses for detailed monitoring:
+        - seaway_status: "ok" or "error" - can we reach the seaway API?
+        - bridge_activity: "ok" or "warning" - are bridges changing?
+
+    Seasonal thresholds:
+        - Summer (Mar 16 - Nov 30): 24h
+        - Winter (Dec 1 - Mar 15): 72h
 
     Rate limit: 30 requests/minute per IP.
     Cache: Responses cached for 5 seconds.
@@ -1309,8 +1328,7 @@ def health(request: Request, response: Response):
     response.headers["Cache-Control"] = "public, max-age=5"
 
     now = datetime.now(TIMEZONE)
-    status = "ok"
-    status_message = "All systems operational"
+    inactivity_threshold = timedelta(hours=72) if is_winter_season(now) else timedelta(hours=24)
 
     # Get bridge count from memory
     with last_known_state_lock:
@@ -1321,32 +1339,61 @@ def health(request: Request, response: Response):
         consecutive_failures = shared.consecutive_scrape_failures
         last_scrape = shared.last_scrape_time
 
-    # Check for consecutive scrape failures (all regions failing)
-    if consecutive_failures >= 3:
-        status = "error"
-        status_message = f"Scraper failing: {consecutive_failures} consecutive failures (all regions)"
+    # === Seaway Status (can we reach the seaway API?) ===
+    seaway_status = "ok"
+    seaway_message = "Seaway API responding normally"
 
-    # Check scraper health (runs every 20-30s, so 5 min = definitely stuck)
-    if last_scrape and status == "ok":
+    if consecutive_failures >= 3:
+        seaway_status = "error"
+        seaway_message = f"{consecutive_failures} consecutive failures (all regions)"
+    elif last_scrape:
         scrape_age = now - last_scrape
         if scrape_age > timedelta(minutes=5):
-            status = "error"
+            seaway_status = "error"
             minutes_ago = int(scrape_age.total_seconds() / 60)
-            status_message = f"Scraper has not succeeded in {minutes_ago} minutes"
+            seaway_message = f"No successful fetch in {minutes_ago} minutes"
 
-    # Check data freshness (24h without any bridge change is unusual)
-    if shared.last_updated_time and status == "ok":
+    # === Bridge Activity (are bridges changing?) ===
+    bridge_activity = "ok"
+    bridge_activity_message = "Data up to date"
+
+    if shared.last_updated_time:
         data_age = now - shared.last_updated_time
-        if data_age > timedelta(hours=24):
-            status = "warning"
-            hours_ago = int(data_age.total_seconds() / 3600)
-            status_message = f"No bridge status changes in {hours_ago} hours, unusual inactivity"
+        total_seconds = round(data_age.total_seconds())
+        total_minutes = round(data_age.total_seconds() / 60)
+        hours_ago = round(data_age.total_seconds() / 3600)
+        threshold_hours = int(inactivity_threshold.total_seconds() / 3600)
+
+        if data_age > inactivity_threshold:
+            bridge_activity = "warning"
+            bridge_activity_message = f"No bridge status changes in {hours_ago} hours (threshold: {threshold_hours}h)"
+        elif total_seconds < 60:
+            bridge_activity_message = f"Last bridge status change {total_seconds} seconds ago"
+        elif total_minutes < 120:
+            bridge_activity_message = f"Last bridge status change {total_minutes} minutes ago"
+        else:
+            bridge_activity_message = f"Last bridge status change {hours_ago} hours ago"
+
+    # === Combined Status (backwards compatibility) ===
+    if seaway_status == "error":
+        status = "error"
+        status_message = f"Seaway error: {seaway_message}"
+    elif bridge_activity == "warning":
+        status = "warning"
+        status_message = f"Data stale: {bridge_activity_message}"
+    else:
+        status = "ok"
+        status_message = "All systems operational"
 
     boats_count = boat_tracker.get_vessel_count() if boat_tracker else 0
 
     return {
         "status": status,
         "status_message": status_message,
+        "seaway_status": seaway_status,
+        "seaway_message": seaway_message,
+        "bridge_activity": bridge_activity,
+        "bridge_activity_message": bridge_activity_message,
         "last_updated": shared.last_updated_time.isoformat() if shared.last_updated_time else None,
         "last_scrape": last_scrape.isoformat() if last_scrape else None,
         "last_scrape_had_changes": shared.last_scrape_had_changes,

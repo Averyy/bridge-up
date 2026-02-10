@@ -315,6 +315,63 @@ class TestParseNewJson(unittest.TestCase):
         self.assertEqual(closure['time'].hour, 14)
         self.assertEqual(closure['time'].minute, 30)
 
+    def test_maintenance_list_with_startDate_endDate(self):
+        """Test parsing maintenance from v2 API fields (startDate/endDate)"""
+        json_data = {
+            'bridgeStatusList': [
+                {
+                    'address': 'St-Louis-de-Gonzague Bridge',
+                    'status3': 'Unavailable (bridge outage)',
+                    'bridgeLiftList': [],
+                    'bridgeMaintenanceList': [
+                        {
+                            'id': 123,
+                            'startDate': '2026-02-09T09:59:16',
+                            'endDate': '2026-02-11T09:58:16',
+                            'eventTypeId': 1
+                        }
+                    ]
+                }
+            ]
+        }
+
+        result = parse_new_json(json_data)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]['raw_status'], 'Unavailable (bridge outage)')
+        self.assertEqual(len(result[0]['upcoming_closures']), 1)
+        closure = result[0]['upcoming_closures'][0]
+        self.assertEqual(closure['type'], 'Construction')
+        self.assertIsNotNone(closure['end_time'])
+        self.assertEqual(closure['end_time'].month, 2)
+        self.assertEqual(closure['end_time'].day, 11)
+
+    def test_maintenance_list_with_closeDateFr(self):
+        """Test parsing maintenance from legacy API fields (closeDateFr/closeDateTo)"""
+        json_data = {
+            'bridgeStatusList': [
+                {
+                    'address': 'Test Bridge',
+                    'status3': 'Unavailable (work in progress)',
+                    'bridgeLiftList': [],
+                    'bridgeMaintenanceList': [
+                        {
+                            'closeDateFr': '2026-06-01T08:00:00',
+                            'closeDateTo': '2026-06-01T17:00:00'
+                        }
+                    ]
+                }
+            ]
+        }
+
+        result = parse_new_json(json_data)
+
+        self.assertEqual(len(result[0]['upcoming_closures']), 1)
+        closure = result[0]['upcoming_closures'][0]
+        self.assertEqual(closure['type'], 'Construction')
+        self.assertIsNotNone(closure['end_time'])
+        self.assertEqual(closure['end_time'].hour, 17)
+
 
 class TestInterpretBridgeStatus(unittest.TestCase):
     """Tests for status interpretation logic"""

@@ -333,8 +333,8 @@ def parse_new_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         # Parse maintenance closures
         maintenance_list = bridge_status.get('bridgeMaintenanceList', [])
         for maintenance in maintenance_list:
-            close_date_str = maintenance.get('closeDateFr', '')
-            close_date_to = maintenance.get('closeDateTo', '')
+            close_date_str = maintenance.get('closeDateFr', '') or maintenance.get('startDate', '')
+            close_date_to = maintenance.get('closeDateTo', '') or maintenance.get('endDate', '')
 
             if not close_date_str:
                 continue

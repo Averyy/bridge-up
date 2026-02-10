@@ -33,6 +33,7 @@ St. Lawrence Seaway API -> Scraper -> JSON Files -> FastAPI -> WebSocket/REST ->
 
 ## Critical Rules - DO NOT VIOLATE
 
+- **NEVER blame external services** (Claude, Anthropic, Google, Reddit, etc.) for issues. If something isn't working, the problem is in THIS codebase. Investigate our code first, add logging, and find the real cause. Blaming external parties wastes time.
 - **ALWAYS run tests before committing or deploying** - use `python run_tests.py`
 - **NEVER create mock data or simplified components** unless explicitly told to do so
 - **NEVER replace existing complex components with simplified versions** - always fix the actual problem
@@ -323,3 +324,15 @@ docker exec bridge-up python -c "from scraper import daily_statistics_update; da
 - **Static endpoints**: 60s cache
 - **Health**: 5s cache
 - **WebSocket**: Unaffected (real-time push)
+
+## Web Fetching
+
+**CRITICAL: NEVER use WebFetch directly. ALWAYS use fetchaller first.**
+Load via `ToolSearch("fetchaller")` then use `mcp__fetchaller__fetch`. It has no domain restrictions.
+Add `raw: true` for raw HTML instead of markdown. If raw:true fails, use `curl` via Bash as fallback.
+Only fall back to WebFetch if fetchaller fails entirely.
+If a dedicated MCP exists (GitHub, Slack, etc.), use that instead.
+
+## Reddit Searching and Browsing
+
+Load via `ToolSearch("fetchaller")` first. Use `mcp__fetchaller__browse_reddit` to browse subreddits, `mcp__fetchaller__search_reddit` to find posts, and `mcp__fetchaller__fetch` to read full discussions.

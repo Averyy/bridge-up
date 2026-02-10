@@ -134,7 +134,11 @@ def parse_date(date_str: str) -> Tuple[Optional[datetime], bool]:
         try:
             clean_str = str(date_str).replace('Z', '+00:00')
             closure_time = datetime.fromisoformat(clean_str)
-            return closure_time.astimezone(TIMEZONE), False
+            if closure_time.tzinfo is None:
+                closure_time = TIMEZONE.localize(closure_time)
+            else:
+                closure_time = closure_time.astimezone(TIMEZONE)
+            return closure_time, False
         except ValueError:
             pass
 
@@ -309,10 +313,14 @@ def parse_new_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     current_time = datetime.now(TIMEZONE)
 
     for bridge_status in bridge_statuses:
-        name = bridge_status.get('address', '').strip()
-        status = bridge_status.get('status3', '').strip()
+        name = (bridge_status.get('address') or '').strip()
+        status = (bridge_status.get('status3') or '').strip()
         if not status:
-            status = bridge_status.get('status', 'Unknown').strip()
+            # Reconstruct from status + status2 to preserve qualifiers
+            # e.g. "Unavailable " + "(bridge outage)" = "Unavailable (bridge outage)"
+            base = (bridge_status.get('status') or '').strip()
+            qualifier = (bridge_status.get('status2') or '').strip()
+            status = f"{base} {qualifier}".strip() if base else 'Unknown'
 
         upcoming_closures = []
 

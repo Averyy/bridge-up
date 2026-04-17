@@ -46,6 +46,29 @@ DAILY_AND_PATTERN = re.compile(
     re.IGNORECASE
 )
 
+# Larocque-style summary line (year optional, shared across both days, inline times)
+# e.g. "Closure Dates: April 11 and 12 from 3 am to 3 pm (both days)"
+CLOSURE_DATES_AND_PATTERN = re.compile(
+    r'Closure Dates:?\s*(\w+)\s+(\d+)\s+and\s+(\d+)(?:,?\s*(\d{4}))?\s+from\s+'
+    r'(\d+)(?::(\d+))?\s*(a\.?m\.?|p\.?m\.?)\s+to\s+'
+    r'(\d+)(?::(\d+))?\s*(a\.?m\.?|p\.?m\.?)',
+    re.IGNORECASE,
+)
+
+# Structured bullet fallback: "Dates: April 11 and 12, 2026"
+# Negative lookbehind prevents matching inside "Closure Dates:"
+STRUCTURED_DATES_AND_PATTERN = re.compile(
+    r'(?<!Closure\s)\bDates:?\s*(\w+)\s+(\d+)\s+and\s+(\d+),\s*(\d{4})',
+    re.IGNORECASE,
+)
+
+# Structured bullet fallback: "Lane closures: from 3:00 a.m. to 3:00 p.m."
+STRUCTURED_LANE_TIMES_PATTERN = re.compile(
+    r'Lane closures:?\s*from\s+(\d+)(?::(\d+))?\s*(a\.?m\.?|p\.?m\.?)\s+to\s+'
+    r'(\d+)(?::(\d+))?\s*(a\.?m\.?|p\.?m\.?)',
+    re.IGNORECASE,
+)
+
 
 def sanitize_text(text: str) -> str:
     """
@@ -424,6 +447,60 @@ def extract_closures_from_html(html: str) -> List[Dict]:
             except (ValueError, TypeError) as e:
                 parse_failures += 1
                 logger.warning(f"Failed to parse daily single: {e}")
+
+        # Parse Larocque-style "Closure Dates: X and Y from H am to H pm" (two discrete days, shared times)
+        and_periods_raw = []
+        for match in CLOSURE_DATES_AND_PATTERN.finditer(full_text):
+            and_periods_raw.append(match.groups())
+
+        # Fallback: pair structured "Dates:" bullet with "Lane closures:" bullet
+        if not and_periods_raw:
+            date_m = STRUCTURED_DATES_AND_PATTERN.search(full_text)
+            time_m = STRUCTURED_LANE_TIMES_PATTERN.search(full_text)
+            if date_m and time_m:
+                month, d1, d2, year = date_m.groups()
+                s_h, s_m, s_ap, e_h, e_m, e_ap = time_m.groups()
+                and_periods_raw.append((month, d1, d2, year, s_h, s_m, s_ap, e_h, e_m, e_ap))
+
+        for month, d1, d2, year, s_h, s_m, s_ap, e_h, e_m, e_ap in and_periods_raw:
+            try:
+                # If year missing from summary, prefer year from structured bullet; else current year
+                if not year:
+                    yr_m = STRUCTURED_DATES_AND_PATTERN.search(full_text)
+                    year = yr_m.group(4) if yr_m else str(now.year)
+
+                d1_str = fix_date_typo(f"{month} {d1}, {year}", now)
+                d2_str = fix_date_typo(f"{month} {d2}, {year}", now)
+                date1 = dateutil_parser.parse(d1_str).date()
+                date2 = dateutil_parser.parse(d2_str).date()
+
+                # Normalize "a.m."/"p.m." -> "am"/"pm" before passing to strict validator
+                s_ap_norm = s_ap.replace('.', '').lower()
+                e_ap_norm = e_ap.replace('.', '').lower()
+                sh24 = convert_12h_to_24h(s_h, s_ap_norm)
+                eh24 = convert_12h_to_24h(e_h, e_ap_norm)
+                smin = int(s_m) if s_m else 0
+                emin = int(e_m) if e_m else 0
+                if not (0 <= smin <= 59) or not (0 <= emin <= 59):
+                    raise ValueError(f"Invalid minute value: start={smin}, end={emin}")
+
+                end_time = datetime.strptime(f"{eh24:02d}:{emin:02d}", "%H:%M").time()
+                for single_date in (date1, date2):
+                    end_datetime = TIMEZONE.localize(datetime.combine(single_date, end_time), is_dst=False)
+                    if end_datetime > now:
+                        periods.append({
+                            "type": "daily",
+                            "start_date": single_date.isoformat(),
+                            "end_date": single_date.isoformat(),
+                            "daily_start_time": f"{sh24:02d}:{smin:02d}",
+                            "daily_end_time": f"{eh24:02d}:{emin:02d}"
+                        })
+                        logger.debug(f"{bridge_name}: Daily {s_h}{s_ap}-{e_h}{e_ap} on {single_date}")
+                    else:
+                        logger.debug(f"{bridge_name}: Skipping past 'and' closure {single_date}")
+            except (ValueError, TypeError) as e:
+                parse_failures += 1
+                logger.warning(f"Failed to parse 'Closure Dates and' pattern: {e}")
 
         if periods:
             # Deduplicate periods (multiple regex patterns can match overlapping content)

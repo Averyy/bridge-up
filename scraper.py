@@ -495,36 +495,6 @@ def generate_history_doc_id(current_time: datetime) -> str:
     return f"{formatted_time}-{unique_id}"
 
 
-def append_to_history_file(bridge_id: str, entry: Dict[str, Any]) -> None:
-    """
-    Append entry to bridge history file (max 300 entries).
-
-    Replaces Firestore subcollection with JSON file.
-    Thread-safe: uses history_file_lock to prevent race conditions.
-    """
-    path = f"data/history/{bridge_id}.json"
-
-    with history_file_lock:
-        # Read existing or start fresh
-        if os.path.exists(path):
-            try:
-                with open(path) as f:
-                    history = json.load(f)
-            except (json.JSONDecodeError, IOError):
-                history = []
-        else:
-            history = []
-
-        # Prepend new entry (newest first)
-        history.insert(0, entry)
-
-        # Trim to max 300 entries
-        history = history[:300]
-
-        # Atomic write
-        atomic_write_json(path, history)
-
-
 def update_history(bridge_id: str, new_status: str, current_time: datetime, old_status: Optional[str] = None) -> None:
     """
     Update bridge history when status changes.

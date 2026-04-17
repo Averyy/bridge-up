@@ -14,7 +14,7 @@ Backend API powering the [Bridge Up iOS app](https://bridgeup.app). Never wait a
 - 🚢 **Vessel tracking:** real-time ship positions via AIS
 - 🔧 **Maintenance scraper:** auto-detects scheduled closures from Seaway website
 - ⚡ **Concurrent scraping:** all bridges in ~0.7 seconds
-- 📊 **Predictive intelligence:** reopening estimates based on 300+ closures per bridge
+- 📊 **Predictive intelligence:** reopening estimates based on up to 300 recent closures per bridge
 - 🔄 **Real-time updates:** every 20-30 seconds via WebSocket
 - 🐳 **Docker containerized:** easy deployment
 - 📁 **JSON file storage:** no database dependencies
@@ -48,7 +48,7 @@ Backend API powering the [Bridge Up iOS app](https://bridgeup.app). Never wait a
 
 | Endpoint | Rate Limit | Cache | Description |
 |----------|------------|-------|-------------|
-| `wss://api.bridgeup.app/ws` | - | - | WebSocket (real-time updates, see [client guide](ws-client-guide.md)) |
+| `wss://api.bridgeup.app/ws` | - | - | WebSocket (real-time updates, see [API reference](docs/api-reference.md)) |
 | `GET /` | 30/min | 60s | API root with endpoint discovery |
 | `GET /bridges` | 60/min | 10s | All bridges (same data as WebSocket) |
 | `GET /bridges/{id}` | 60/min | 10s | Single bridge by ID |
@@ -87,13 +87,13 @@ ws.onmessage = (event) => {
 };
 ```
 
-See [WebSocket Client Guide](ws-client-guide.md) for complete documentation including region filtering.
+See [API reference](docs/api-reference.md) for complete WebSocket protocol docs including channels and region filtering.
 
 ### Response Format
 
 ```json
 {
-  "last_updated": "2025-12-24T12:30:00-05:00",
+  "last_updated": "2026-04-17T08:33:00-04:00",
   "available_bridges": [
     {"id": "SCT_CarltonSt", "name": "Carlton St.", "region_short": "SCT", "region": "St Catharines"}
   ],
@@ -102,18 +102,20 @@ See [WebSocket Client Guide](ws-client-guide.md) for complete documentation incl
       "static": {
         "name": "Carlton St.",
         "region": "St Catharines",
+        "region_short": "SCT",
         "coordinates": {"lat": 43.19, "lng": -79.20},
         "statistics": {
-          "average_closure_duration": 12,
-          "closure_ci": {"lower": 8, "upper": 16},
-          "average_raising_soon": 3,
-          "raising_soon_ci": {"lower": 2, "upper": 5},
-          "total_entries": 287
+          "average_closure_duration": 14,
+          "closure_ci": {"lower": 13, "upper": 16},
+          "average_raising_soon": 27,
+          "raising_soon_ci": {"lower": 13, "upper": 42},
+          "closure_durations": {"under_9m": 31, "10_15m": 60, "16_30m": 49, "31_60m": 5, "over_60m": 0},
+          "total_entries": 286
         }
       },
       "live": {
         "status": "Open",
-        "last_updated": "2025-12-24T12:30:00-05:00",
+        "last_updated": "2026-04-17T08:33:00-04:00",
         "predicted": null,
         "upcoming_closures": [],
         "responsible_vessel_mmsi": null
@@ -122,6 +124,8 @@ See [WebSocket Client Guide](ws-client-guide.md) for complete documentation incl
   }
 }
 ```
+
+See [API reference](docs/api-reference.md) for the full schema including `responsible_vessel_mmsi` semantics and prediction fields.
 
 ### Boats Response
 

@@ -103,7 +103,7 @@ class TestParseOldJson(unittest.TestCase):
             'bridgeClosureList': [
                 {
                     'bridgeAddress': 'Main St.',
-                    'closureP': 'DEC 22, 2026 - DEC 22, 2026, 09:00 - 12:00',
+                    'closureP': 'DEC 22, 2030 - DEC 22, 2030, 09:00 - 12:00',
                     'continuousHour': 'N',
                     'reason': 'Bridge / road maintenance'
                 }
@@ -116,7 +116,7 @@ class TestParseOldJson(unittest.TestCase):
         self.assertEqual(len(result[0]['upcoming_closures']), 1)
         closure = result[0]['upcoming_closures'][0]
         self.assertEqual(closure['type'], 'Construction')
-        self.assertEqual(closure['time'].year, 2026)
+        self.assertEqual(closure['time'].year, 2030)
         self.assertEqual(closure['time'].month, 12)
         self.assertEqual(closure['time'].day, 22)
         self.assertEqual(closure['time'].hour, 9)
@@ -131,7 +131,7 @@ class TestParseOldJson(unittest.TestCase):
             'bridgeClosureList': [
                 {
                     'bridgeAddress': 'Carlton St.',
-                    'closureP': 'DEC 22, 2026 - DEC 24, 2026, 08:00 - 17:00',
+                    'closureP': 'DEC 22, 2030 - DEC 24, 2030, 08:00 - 17:00',
                     'continuousHour': 'N',
                     'reason': 'Bridge / road maintenance'
                 }
@@ -160,7 +160,7 @@ class TestParseOldJson(unittest.TestCase):
             'bridgeClosureList': [
                 {
                     'bridgeAddress': 'Test Bridge',
-                    'closureP': 'DEC 22, 2026 - DEC 24, 2026, 08:00 - 17:00',
+                    'closureP': 'DEC 22, 2030 - DEC 24, 2030, 08:00 - 17:00',
                     'continuousHour': 'Y',
                     'reason': 'Emergency repair'
                 }
@@ -180,7 +180,7 @@ class TestParseOldJson(unittest.TestCase):
         self.assertEqual(closure['end_time'].hour, 17)
 
     def test_multiday_closure_format_with_times_attached(self):
-        """Test multi-day format where times are attached to dates: JAN 10, 2026 07:00 - MAR 14, 2026 17:00 (24/7)"""
+        """Test multi-day format where times are attached to dates: JAN 10, 2030 07:00 - MAR 14, 2030 17:00 (24/7)"""
         json_data = {
             'bridgeModelList': [
                 {'address': 'Clarence St. ', 'status': 'Unavailable (Work in Progress)', 'vessel1ETA': '----'}
@@ -188,7 +188,7 @@ class TestParseOldJson(unittest.TestCase):
             'bridgeClosureList': [
                 {
                     'bridgeAddress': 'Clarence St. ',
-                    'closureP': 'JAN 10, 2026 07:00 - MAR 14, 2026 17:00 (24/7) ',
+                    'closureP': 'JAN 10, 2030 07:00 - MAR 14, 2030 17:00 (24/7) ',
                     'continuousHour': 'Y',
                     'reason': 'Bridge / road maintenance'
                 }
@@ -201,14 +201,14 @@ class TestParseOldJson(unittest.TestCase):
         self.assertEqual(len(result[0]['upcoming_closures']), 1)
         closure = result[0]['upcoming_closures'][0]
         self.assertEqual(closure['type'], 'Construction')
-        # Verify start: Jan 10, 2026 at 7:00
-        self.assertEqual(closure['time'].year, 2026)
+        # Verify start: Jan 10, 2030 at 7:00
+        self.assertEqual(closure['time'].year, 2030)
         self.assertEqual(closure['time'].month, 1)
         self.assertEqual(closure['time'].day, 10)
         self.assertEqual(closure['time'].hour, 7)
         self.assertEqual(closure['time'].minute, 0)
-        # Verify end: Mar 14, 2026 at 17:00
-        self.assertEqual(closure['end_time'].year, 2026)
+        # Verify end: Mar 14, 2030 at 17:00
+        self.assertEqual(closure['end_time'].year, 2030)
         self.assertEqual(closure['end_time'].month, 3)
         self.assertEqual(closure['end_time'].day, 14)
         self.assertEqual(closure['end_time'].hour, 17)
@@ -224,13 +224,13 @@ class TestParseOldJson(unittest.TestCase):
             'bridgeClosureList': [
                 {
                     'bridgeAddress': 'Bridge A',
-                    'closureP': 'DEC 22, 2026 - DEC 22, 2026, 09:00 - 12:00',  # Single-day format
+                    'closureP': 'DEC 22, 2030 - DEC 22, 2030, 09:00 - 12:00',  # Single-day format
                     'continuousHour': 'N',
                     'reason': 'Maintenance'
                 },
                 {
                     'bridgeAddress': 'Bridge B',
-                    'closureP': 'JAN 10, 2026 07:00 - MAR 14, 2026 17:00 (24/7)',  # Multi-day format
+                    'closureP': 'JAN 10, 2030 07:00 - MAR 14, 2030 17:00 (24/7)',  # Multi-day format
                     'continuousHour': 'Y',
                     'reason': 'Construction'
                 }
@@ -250,6 +250,27 @@ class TestParseOldJson(unittest.TestCase):
         self.assertEqual(len(bridge_b['upcoming_closures']), 1)
         self.assertEqual(bridge_b['upcoming_closures'][0]['time'].month, 1)
         self.assertEqual(bridge_b['upcoming_closures'][0]['end_time'].month, 3)
+
+    def test_past_closure_is_filtered_out(self):
+        """Past closures must be dropped — only upcoming closures should surface."""
+        json_data = {
+            'bridgeModelList': [
+                {'address': 'Test Bridge', 'status': 'Available', 'vessel1ETA': '----'}
+            ],
+            'bridgeClosureList': [
+                {
+                    'bridgeAddress': 'Test Bridge',
+                    'closureP': 'JAN 05, 2020 - JAN 05, 2020, 09:00 - 12:00',
+                    'continuousHour': 'N',
+                    'reason': 'Old maintenance'
+                }
+            ]
+        }
+
+        result = parse_old_json(json_data)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result[0]['upcoming_closures']), 0)
 
 
 class TestParseNewJson(unittest.TestCase):
@@ -299,7 +320,7 @@ class TestParseNewJson(unittest.TestCase):
                     'address': 'Test Bridge',
                     'status3': 'Available',
                     'bridgeLiftList': [
-                        {'id': 123, 'type': 'a', 'eta': '2026-12-20T14:30:00'}
+                        {'id': 123, 'type': 'a', 'eta': '2030-12-20T14:30:00'}
                     ],
                     'bridgeMaintenanceList': []
                 }
@@ -326,8 +347,8 @@ class TestParseNewJson(unittest.TestCase):
                     'bridgeMaintenanceList': [
                         {
                             'id': 123,
-                            'startDate': '2026-02-09T09:59:16',
-                            'endDate': '2026-02-11T09:58:16',
+                            'startDate': '2030-02-09T09:59:16',
+                            'endDate': '2030-02-11T09:58:16',
                             'eventTypeId': 1
                         }
                     ]
@@ -356,8 +377,8 @@ class TestParseNewJson(unittest.TestCase):
                     'bridgeLiftList': [],
                     'bridgeMaintenanceList': [
                         {
-                            'closeDateFr': '2026-06-01T08:00:00',
-                            'closeDateTo': '2026-06-01T17:00:00'
+                            'closeDateFr': '2030-06-01T08:00:00',
+                            'closeDateTo': '2030-06-01T17:00:00'
                         }
                     ]
                 }
@@ -371,6 +392,28 @@ class TestParseNewJson(unittest.TestCase):
         self.assertEqual(closure['type'], 'Construction')
         self.assertIsNotNone(closure['end_time'])
         self.assertEqual(closure['end_time'].hour, 17)
+
+    def test_past_lift_and_maintenance_are_filtered_out(self):
+        """Past bridgeLiftList and bridgeMaintenanceList entries must be dropped."""
+        json_data = {
+            'bridgeStatusList': [
+                {
+                    'address': 'Test Bridge',
+                    'status3': 'Available',
+                    'bridgeLiftList': [
+                        {'id': 1, 'type': 'c', 'eta': '2020-01-05T09:00:00'}
+                    ],
+                    'bridgeMaintenanceList': [
+                        {'startDate': '2020-01-05T08:00:00', 'endDate': '2020-01-05T17:00:00'}
+                    ]
+                }
+            ]
+        }
+
+        result = parse_new_json(json_data)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result[0]['upcoming_closures']), 0)
 
 
 class TestInterpretBridgeStatus(unittest.TestCase):

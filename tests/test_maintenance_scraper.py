@@ -16,7 +16,10 @@ from maintenance_scraper import (
     FULL_CLOSURE_PATTERN,
     DAILY_RANGE_PATTERN,
     DAILY_SINGLE_PATTERN,
-    DAILY_AND_PATTERN
+    DAILY_AND_PATTERN,
+    CLOSURE_DATES_AND_PATTERN,
+    STRUCTURED_DATES_AND_PATTERN,
+    STRUCTURED_LANE_TIMES_PATTERN,
 )
 from shared import TIMEZONE
 
@@ -52,6 +55,44 @@ SAMPLE_DAILY_SINGLE = """
 SAMPLE_PEDESTRIAN_BRIDGE = """
 <h1 class="ea-header"><a>Welland Canals Trail Pedestrian Bridge</a></h1>
 <div class="ea-body"><p>Full closure: January 12, 2026 to February 6, 2026</p></div>
+"""
+
+# Larocque fixture with an explicitly-past year (2020) — used to verify past filtering.
+# Note: fix_date_typo will bump 2020 -> 2021 (single increment for >180-day gap), but both
+# are still in the past relative to any "now" after April 2021, so periods get filtered.
+SAMPLE_LAROCQUE_PAST_YEAR = """
+<div class="ea-card">
+  <h1 class="ea-header"><a>Larocque Bridge</a></h1>
+  <div class="ea-body">
+    <p><strong>Location:</strong> Valleyfield, Quebec</p>
+    <p><strong>Closure Dates:</strong> April 11 and 12 from 3 am to 3 pm (both days)</p>
+    <p><strong>Project Type:</strong> Closure for maintenance work on the operating cables of the bridge lift system</p>
+    <p><strong>Closure Details:</strong></p>
+    <ul>
+      <li>Dates: April 11 and 12, 2020</li>
+      <li>Lane closures: from 3:00 a.m. to 3:00 p.m. (both days)</li>
+    </ul>
+  </div>
+</div>
+"""
+
+# Larocque-style two-day closure with shared times and no "Daily closure" prefix.
+# Both the summary line and the structured detail bullet are present (real page layout).
+# Uses 2030 so the "valid/future" scenario stays valid as years pass.
+SAMPLE_LAROCQUE = """
+<div class="ea-card">
+  <h1 class="ea-header"><a>Larocque Bridge</a></h1>
+  <div class="ea-body">
+    <p><strong>Location:</strong> Valleyfield, Quebec</p>
+    <p><strong>Closure Dates:</strong> April 11 and 12 from 3 am to 3 pm (both days)</p>
+    <p><strong>Project Type:</strong> Closure for maintenance work on the operating cables of the bridge lift system</p>
+    <p><strong>Closure Details:</strong></p>
+    <ul>
+      <li>Dates: April 11 and 12, 2030</li>
+      <li>Lane closures: from 3:00 a.m. to 3:00 p.m. (both days)</li>
+    </ul>
+  </div>
+</div>
 """
 
 
@@ -195,6 +236,53 @@ class TestRegexPatterns(unittest.TestCase):
         self.assertEqual(groups[6], "February 24, 2026")
         self.assertEqual(groups[7], "February 25, 2026")
 
+    def test_closure_dates_and_pattern_no_year(self):
+        """Summary line without year — e.g. 'Closure Dates: April 11 and 12 from 3 am to 3 pm'."""
+        text = "Closure Dates: April 11 and 12 from 3 am to 3 pm (both days)"
+        match = CLOSURE_DATES_AND_PATTERN.search(text)
+        self.assertIsNotNone(match)
+        month, d1, d2, year, s_h, s_m, s_ap, e_h, e_m, e_ap = match.groups()
+        self.assertEqual(month, "April")
+        self.assertEqual(d1, "11")
+        self.assertEqual(d2, "12")
+        self.assertIsNone(year)
+        self.assertEqual(s_h, "3")
+        self.assertEqual(s_ap.lower(), "am")
+        self.assertEqual(e_h, "3")
+        self.assertEqual(e_ap.lower(), "pm")
+
+    def test_closure_dates_and_pattern_with_year(self):
+        """Summary line with year after second day."""
+        text = "Closure Dates: April 11 and 12, 2030 from 3 am to 3 pm"
+        match = CLOSURE_DATES_AND_PATTERN.search(text)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group(4), "2030")
+
+    def test_structured_dates_and_pattern_matches_bullet(self):
+        """Should match 'Dates: April 11 and 12, 2030' bullet."""
+        text = "Dates: April 11 and 12, 2030"
+        match = STRUCTURED_DATES_AND_PATTERN.search(text)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.groups(), ("April", "11", "12", "2030"))
+
+    def test_structured_dates_and_pattern_ignores_closure_dates(self):
+        """Negative lookbehind: should NOT match inside 'Closure Dates:'."""
+        text = "Closure Dates: April 11 and 12, 2030 from 3 am to 3 pm"
+        match = STRUCTURED_DATES_AND_PATTERN.search(text)
+        self.assertIsNone(match)
+
+    def test_structured_lane_times_pattern(self):
+        """Should match 'Lane closures: from 3:00 a.m. to 3:00 p.m.'."""
+        text = "Lane closures: from 3:00 a.m. to 3:00 p.m. (both days)"
+        match = STRUCTURED_LANE_TIMES_PATTERN.search(text)
+        self.assertIsNotNone(match)
+        s_h, s_m, s_ap, e_h, e_m, e_ap = match.groups()
+        self.assertEqual(s_h, "3")
+        self.assertEqual(s_m, "00")
+        self.assertEqual(s_ap.lower(), "a.m.")
+        self.assertEqual(e_h, "3")
+        self.assertEqual(e_ap.lower(), "p.m.")
+
 
 class TestHTMLExtraction(unittest.TestCase):
     """Tests for HTML parsing and data extraction."""
@@ -272,6 +360,30 @@ class TestHTMLExtraction(unittest.TestCase):
 
         closures = extract_closures_from_html(SAMPLE_HTML)
         # Should have no closures with periods because all are in the past
+        self.assertTrue(len(closures) == 0 or all(len(c['periods']) == 0 for c in closures))
+
+    def test_extract_larocque_future(self):
+        """Larocque fixture uses 2030 dates (future relative to real now) — expect 2 daily periods."""
+        closures = extract_closures_from_html(SAMPLE_LAROCQUE)
+        self.assertEqual(len(closures), 1)
+        closure = closures[0]
+        self.assertEqual(closure['bridge_id'], "SBS_LarocqueBridgeSalaberryde")
+
+        # Expect exactly 2 periods — summary line and structured bullet should dedup to one pair
+        self.assertEqual(len(closure['periods']), 2)
+
+        # Both should be daily type, covering April 11 and April 12, 03:00-15:00
+        dates = sorted(p['start_date'] for p in closure['periods'])
+        self.assertEqual(dates, ['2030-04-11', '2030-04-12'])
+        for p in closure['periods']:
+            self.assertEqual(p['type'], 'daily')
+            self.assertEqual(p['start_date'], p['end_date'])
+            self.assertEqual(p['daily_start_time'], '03:00')
+            self.assertEqual(p['daily_end_time'], '15:00')
+
+    def test_extract_larocque_past_year_2020(self):
+        """Larocque fixture uses 2020 dates (real past) — parser matches but periods filtered as past."""
+        closures = extract_closures_from_html(SAMPLE_LAROCQUE_PAST_YEAR)
         self.assertTrue(len(closures) == 0 or all(len(c['periods']) == 0 for c in closures))
 
 

@@ -33,7 +33,7 @@ All responses include `Cache-Control: public, max-age=X` headers for browser/CDN
 
 ## WebSocket Protocol (`/ws`)
 
-Clients must subscribe to channels after connecting. See [ws-client-guide.md](../ws-client-guide.md) for full docs.
+Clients must subscribe to channels after connecting. See [ws-client-guide.md](ws-client-guide.md) for full docs.
 
 ### Channels
 

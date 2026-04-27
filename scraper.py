@@ -163,7 +163,7 @@ def parse_date(date_str: str) -> Tuple[Optional[datetime], bool]:
         return None, False
 
 
-def fetch_json_endpoint(url: str, timeout: int = 10, retries: int = 3) -> Optional[Dict[str, Any]]:
+def fetch_json_endpoint(url: str, timeout: int = 6, retries: int = 2) -> Optional[Dict[str, Any]]:
     """
     Fetch JSON data from endpoint with retry logic.
 
@@ -185,7 +185,7 @@ def fetch_json_endpoint(url: str, timeout: int = 10, retries: int = 3) -> Option
             return response.json()
         except (requests.RequestException, requests.Timeout, ValueError) as e:
             if attempt == retries - 1:
-                logger.warning(f"Fetch failed {url[:50]}...: {str(e)[:50]}...")
+                logger.warning(f"Fetch failed {url}: {type(e).__name__}: {e}")
                 return None
             continue
     return None
@@ -373,7 +373,7 @@ def parse_new_json(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     return bridges
 
 
-def scrape_bridge_data(bridge_key: str, timeout: int = 10, retries: int = 3) -> List[Dict[str, Any]]:
+def scrape_bridge_data(bridge_key: str, timeout: int = 6, retries: int = 2) -> List[Dict[str, Any]]:
     """
     Fetch bridge data from JSON API with smart endpoint caching.
     """
